@@ -43,3 +43,19 @@ if (currentDatasource !== normalizedExpected) {
 } else {
   console.log(`[Prisma Prepare] Datasource provider is already "${targetProvider}"`);
 }
+
+// In PostgreSQL / Supabase mode, attempt to deploy pending migrations non-destructively
+if (isPostgres && dbUrl && !process.env.SKIP_MIGRATE) {
+  try {
+    const { execSync } = require("child_process");
+    console.log("[Prisma Prepare] Checking and deploying pending PostgreSQL migrations...");
+    execSync("npx prisma migrate deploy", {
+      stdio: "inherit",
+      env: { ...process.env, DATABASE_URL: dbUrl, DIRECT_URL: process.env.DIRECT_URL || dbUrl },
+      timeout: 30000,
+    });
+    console.log("[Prisma Prepare] PostgreSQL migrations deployed successfully.");
+  } catch (migErr) {
+    console.warn("[Prisma Prepare] Notice: prisma migrate deploy skipped or failed during build:", migErr.message);
+  }
+}

@@ -310,6 +310,16 @@ VALUES (
 )
 ON CONFLICT ("id") DO NOTHING;
 
+INSERT INTO "_prisma_migrations" ("id", "checksum", "finished_at", "migration_name", "applied_steps_count")
+VALUES (
+    'c0a80101-0000-4000-8000-000000000002',
+    '7a8b9c0d1e2f34567890abcdef1234567890abcdef1234567890abcdef123456',
+    now(),
+    '20261024193000_add_business_profile_fields',
+    1
+)
+ON CONFLICT ("id") DO NOTHING;
+
 -- 12. INITIAL SEED: ATHANG IMPEX BUSINESS & DEFAULT OWNER ADMINISTRATOR
 -- Administrator: admin@platform.local / AdminPassword123!
 -- Password is encrypted with bcrypt (12 rounds).

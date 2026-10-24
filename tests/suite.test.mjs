@@ -426,4 +426,51 @@ describe("10. Business Profile & AI Providers Fallback Verification", () => {
   });
 });
 
+describe("11. Prisma Database Schema Mismatch & Additive Migration Verification", () => {
+  it("should verify official Prisma migration exists for business profile fields", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const migrationPath = path.join(
+      process.cwd(),
+      "prisma",
+      "migrations",
+      "20261024193000_add_business_profile_fields",
+      "migration.sql"
+    );
+
+    assert.ok(fs.existsSync(migrationPath), "Prisma migration file must exist");
+    const sql = fs.readFileSync(migrationPath, "utf8");
+    assert.ok(sql.includes('ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "address" TEXT'), "Must add address column");
+    assert.ok(sql.includes('ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "productsServices" TEXT'), "Must add productsServices column");
+    assert.ok(sql.includes('ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "businessHours" TEXT'), "Must add businessHours column");
+    assert.ok(sql.includes('ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "supportedLanguages" TEXT'), "Must add supportedLanguages column");
+    assert.ok(sql.includes('ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "faq" TEXT'), "Must add faq column");
+  });
+
+  it("should verify standalone Supabase SQL migration file exists and is additive", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const sqlPath = path.join(process.cwd(), "supabase", "migration_add_business_profile_fields.sql");
+
+    assert.ok(fs.existsSync(sqlPath), "Standalone migration file must exist");
+    const sql = fs.readFileSync(sqlPath, "utf8");
+    assert.ok(sql.includes('ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "address" TEXT'), "Must include address column");
+    assert.ok(sql.includes('"_prisma_migrations"'), "Must record migration in _prisma_migrations");
+    assert.ok(!sql.includes("DROP TABLE"), "Must not drop any tables");
+  });
+
+  it("should verify Business API routes implement schema resilience and self-healing", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const bizRoute = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "businesses", "route.ts"), "utf8");
+    const bizIdRoute = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "businesses", "[id]", "route.ts"), "utf8");
+
+    assert.ok(bizRoute.includes("isMissingColumnError"), "Main route must check for missing column error");
+    assert.ok(bizRoute.includes("autoHealBusinessSchema"), "Main route must trigger autoHealBusinessSchema");
+    assert.ok(bizIdRoute.includes("isMissingColumnError"), "ID route must check for missing column error");
+    assert.ok(bizIdRoute.includes("autoHealBusinessSchema"), "ID route must trigger autoHealBusinessSchema");
+  });
+});
+
+
 

@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "productsServices" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "businessHours" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "supportedLanguages" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "faq" TEXT;

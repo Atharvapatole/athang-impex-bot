@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { isMissingColumnError, autoHealBusinessSchema } from "@/lib/db-heal";
 
 export async function GET(
   req: NextRequest,
@@ -9,25 +10,53 @@ export async function GET(
   try {
     await requireAuth(["OWNER", "ADMIN", "SUPPORT_AGENT"]);
 
-    const business = await prisma.business.findUnique({
-      where: { id: params.id },
-      include: {
-        channels: true,
-        aiConfigs: { orderBy: { priority: "asc" } },
-        kbSources: {
+    let business;
+    try {
+      business = await prisma.business.findUnique({
+        where: { id: params.id },
+        include: {
+          channels: true,
+          aiConfigs: { orderBy: { priority: "asc" } },
+          kbSources: {
+            include: {
+              _count: { select: { chunks: true } },
+            },
+          },
+          _count: {
+            select: {
+              conversations: true,
+              leads: true,
+              usageRecords: true,
+            },
+          },
+        },
+      });
+    } catch (findErr: any) {
+      if (isMissingColumnError(findErr)) {
+        await autoHealBusinessSchema();
+        business = await prisma.business.findUnique({
+          where: { id: params.id },
           include: {
-            _count: { select: { chunks: true } },
+            channels: true,
+            aiConfigs: { orderBy: { priority: "asc" } },
+            kbSources: {
+              include: {
+                _count: { select: { chunks: true } },
+              },
+            },
+            _count: {
+              select: {
+                conversations: true,
+                leads: true,
+                usageRecords: true,
+              },
+            },
           },
-        },
-        _count: {
-          select: {
-            conversations: true,
-            leads: true,
-            usageRecords: true,
-          },
-        },
-      },
-    });
+        });
+      } else {
+        throw findErr;
+      }
+    }
 
     if (!business) {
       return NextResponse.json({ error: "Business not found" }, { status: 404 });
@@ -48,9 +77,21 @@ export async function PATCH(
     const user = await requireAuth(["OWNER", "ADMIN"]);
     const body = await req.json();
 
-    const current = await prisma.business.findUnique({
-      where: { id: params.id },
-    });
+    let current;
+    try {
+      current = await prisma.business.findUnique({
+        where: { id: params.id },
+      });
+    } catch (findErr: any) {
+      if (isMissingColumnError(findErr)) {
+        await autoHealBusinessSchema();
+        current = await prisma.business.findUnique({
+          where: { id: params.id },
+        });
+      } else {
+        throw findErr;
+      }
+    }
 
     if (!current) {
       return NextResponse.json({ error: "Business not found" }, { status: 404 });
@@ -87,29 +128,66 @@ export async function PATCH(
       (humanHandoffMessage !== undefined && humanHandoffMessage !== current.humanHandoffMessage) ||
       (closingMessage !== undefined && closingMessage !== current.closingMessage);
 
-    const updated = await prisma.business.update({
-      where: { id: params.id },
-      data: {
-        name: name ?? current.name,
-        description: description ?? current.description,
-        website: website ?? current.website,
-        email: email ?? current.email,
-        phone: phone ?? current.phone,
-        address: address ?? current.address,
-        productsServices: productsServices ?? current.productsServices,
-        businessHours: businessHours ?? current.businessHours,
-        supportedLanguages: supportedLanguages ?? current.supportedLanguages,
-        faq: faq ?? current.faq,
-        timezone: timezone ?? current.timezone,
-        isActive: isActive ?? current.isActive,
-        systemInstructions: systemInstructions ?? current.systemInstructions,
-        whenYouDontKnow: whenYouDontKnow ?? current.whenYouDontKnow,
-        welcomeMessage: welcomeMessage ?? current.welcomeMessage,
-        safeFailureMessage: safeFailureMessage ?? current.safeFailureMessage,
-        humanHandoffMessage: humanHandoffMessage ?? current.humanHandoffMessage,
-        closingMessage: closingMessage ?? current.closingMessage,
-      },
-    });
+    const updatePayload = {
+      name: name ?? current.name,
+      description: description ?? current.description,
+      website: website ?? current.website,
+      email: email ?? current.email,
+      phone: phone ?? current.phone,
+      address: address ?? current.address,
+      productsServices: productsServices ?? current.productsServices,
+      businessHours: businessHours ?? current.businessHours,
+      supportedLanguages: supportedLanguages ?? current.supportedLanguages,
+      faq: faq ?? current.faq,
+      timezone: timezone ?? current.timezone,
+      isActive: isActive ?? current.isActive,
+      systemInstructions: systemInstructions ?? current.systemInstructions,
+      whenYouDontKnow: whenYouDontKnow ?? current.whenYouDontKnow,
+      welcomeMessage: welcomeMessage ?? current.welcomeMessage,
+      safeFailureMessage: safeFailureMessage ?? current.safeFailureMessage,
+      humanHandoffMessage: humanHandoffMessage ?? current.humanHandoffMessage,
+      closingMessage: closingMessage ?? current.closingMessage,
+    };
+
+    let updated;
+    try {
+      updated = await prisma.business.update({
+        where: { id: params.id },
+        data: updatePayload,
+      });
+    } catch (upErr: any) {
+      if (isMissingColumnError(upErr)) {
+        await autoHealBusinessSchema();
+        try {
+          updated = await prisma.business.update({
+            where: { id: params.id },
+            data: updatePayload,
+          });
+        } catch {
+          const corePayload = {
+            name: updatePayload.name,
+            description: updatePayload.description,
+            website: updatePayload.website,
+            email: updatePayload.email,
+            phone: updatePayload.phone,
+            timezone: updatePayload.timezone,
+            isActive: updatePayload.isActive,
+            systemInstructions: updatePayload.systemInstructions,
+            whenYouDontKnow: updatePayload.whenYouDontKnow,
+            welcomeMessage: updatePayload.welcomeMessage,
+            safeFailureMessage: updatePayload.safeFailureMessage,
+            humanHandoffMessage: updatePayload.humanHandoffMessage,
+            closingMessage: updatePayload.closingMessage,
+          };
+          updated = await prisma.business.update({
+            where: { id: params.id },
+            data: corePayload,
+          });
+        }
+      } else {
+        throw upErr;
+      }
+    }
 
     if (instructionsChanged) {
       await prisma.businessInstructionVersion.create({
