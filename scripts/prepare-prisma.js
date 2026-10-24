@@ -11,20 +11,35 @@ let schema = fs.readFileSync(schemaPath, "utf8");
 
 const dbUrl = process.env.DATABASE_URL || "";
 const isVercel = process.env.VERCEL === "1" || !!process.env.VERCEL_URL;
-const isPostgres = dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://") || (isVercel && !dbUrl.startsWith("file:"));
+const isPostgres =
+  dbUrl.startsWith("postgres://") ||
+  dbUrl.startsWith("postgresql://") ||
+  (isVercel && !dbUrl.startsWith("file:"));
 
 const targetProvider = isPostgres ? "postgresql" : "sqlite";
 
-const currentMatch = schema.match(/datasource\s+db\s+\{\s*provider\s*=\s*"([^"]+)"/);
-const currentProvider = currentMatch ? currentMatch[1] : null;
+// In PostgreSQL / Supabase mode, ensure DIRECT_URL is present in process.env
+// so Prisma CLI commands (generate, migrate) do not fail if only DATABASE_URL is initially supplied
+if (isPostgres && !process.env.DIRECT_URL && dbUrl) {
+  process.env.DIRECT_URL = dbUrl;
+}
 
-if (currentProvider !== targetProvider) {
-  schema = schema.replace(
-    /datasource\s+db\s+\{\s*provider\s*=\s*"[^"]+"\s*url\s*=\s*env\("DATABASE_URL"\)\s*\}/m,
-    `datasource db {\n  provider = "${targetProvider}"\n  url      = env("DATABASE_URL")\n}`
-  );
+let expectedDatasource;
+if (targetProvider === "postgresql") {
+  expectedDatasource = `datasource db {\n  provider  = "postgresql"\n  url       = env("DATABASE_URL")\n  directUrl = env("DIRECT_URL")\n}`;
+} else {
+  expectedDatasource = `datasource db {\n  provider = "sqlite"\n  url      = env("DATABASE_URL")\n}`;
+}
+
+const datasourceRegex = /datasource\s+db\s+\{[\s\S]*?\}/m;
+const currentMatch = schema.match(datasourceRegex);
+const currentDatasource = currentMatch ? currentMatch[0].replace(/\r\n/g, "\n").trim() : "";
+const normalizedExpected = expectedDatasource.replace(/\r\n/g, "\n").trim();
+
+if (currentDatasource !== normalizedExpected) {
+  schema = schema.replace(datasourceRegex, expectedDatasource);
   fs.writeFileSync(schemaPath, schema, "utf8");
-  console.log(`[Prisma Prepare] Switched datasource provider from "${currentProvider}" to "${targetProvider}" (PostgreSQL: ${isPostgres})`);
+  console.log(`[Prisma Prepare] Configured datasource provider: "${targetProvider}" (PostgreSQL: ${isPostgres})`);
 } else {
   console.log(`[Prisma Prepare] Datasource provider is already "${targetProvider}"`);
 }

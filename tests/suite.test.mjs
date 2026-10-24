@@ -265,5 +265,24 @@ describe("8. Administrator Authentication & Bootstrap Integrity", () => {
       `Provider should be sqlite or postgresql, got ${currentMatch[1]}`
     );
   });
+
+  it("should verify valid initial PostgreSQL migration file and lockfile exist for Supabase", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const migrationFile = path.join(process.cwd(), "prisma", "migrations", "20261024000000_init", "migration.sql");
+    const lockFile = path.join(process.cwd(), "prisma", "migrations", "migration_lock.toml");
+
+    assert.ok(fs.existsSync(migrationFile), "Initial migration.sql must exist");
+    assert.ok(fs.existsSync(lockFile), "migration_lock.toml must exist");
+
+    const sql = fs.readFileSync(migrationFile, "utf8");
+    assert.ok(sql.includes('CREATE TABLE "Administrator"'), "Migration must create Administrator table");
+    assert.ok(sql.includes('CREATE TABLE "Business"'), "Migration must create Business table");
+    assert.ok(sql.includes('CREATE TABLE "ChannelIntegration"'), "Migration must create ChannelIntegration table");
+    assert.ok(sql.includes('CREATE TABLE "Lead"'), "Migration must create Lead table");
+
+    const lock = fs.readFileSync(lockFile, "utf8");
+    assert.ok(lock.includes('provider = "postgresql"'), "Lockfile provider must be postgresql");
+  });
 });
 

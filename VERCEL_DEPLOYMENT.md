@@ -39,65 +39,100 @@ This guide describes how to deploy the production **ATHANG IMPEX** AI Chatbot Pl
 
 ---
 
-## 2. PostgreSQL Database Setup (Neon / Supabase)
+---
 
-### Option A: Neon Serverless Postgres (Recommended)
-1. Sign up at [neon.tech](https://neon.tech) and create a new project named `athang-impex-chatbot`.
-2. Copy the pooled connection string (with `?sslmode=require&pgbouncer=true`).
-3. Set `DATABASE_URL` in your `.env` or Vercel Environment Variables.
+## 2. Supabase PostgreSQL Database Setup
 
-### Option B: Supabase
-1. Create a project at [supabase.com](https://supabase.com).
-2. Go to **Project Settings** &rarr; **Database** &rarr; **Connection String** (use Transaction Pooler / port 6543).
+### Step 1: Create Supabase Project
+1. Log in to [supabase.com](https://supabase.com) and create a new project (e.g. `athang-impex-chatbot`).
+2. Choose a strong database password and select your preferred region (e.g., `ap-south-1` Mumbai or closest to your customers).
 
-### Database Migration & Seeding
-Before first login or during Vercel deployment, apply the Prisma schema to your remote PostgreSQL database:
+### Step 2: Retrieve PostgreSQL Connection Strings
+In your Supabase project dashboard, navigate to **Project Settings** &rarr; **Database**:
 
-```bash
-# Set your remote PostgreSQL connection string
-export DATABASE_URL="postgresql://user:password@host/dbname?sslmode=require"
-# On Windows PowerShell:
-# $env:DATABASE_URL="postgresql://user:password@host/dbname?sslmode=require"
+1. **Transaction Pooler Connection (`DATABASE_URL`)**:
+   - Scroll to **Connection String** &rarr; Select **URI** tab &rarr; Choose **Transaction Mode** (Port `6543`).
+   - Format:
+     ```
+     postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true
+     ```
+   - This pooled connection is used by the Vercel serverless application runtime to prevent connection exhaustion.
 
-# 1. Automatically configure schema for PostgreSQL, push tables, and seed ATHANG IMPEX
-npm run db:setup
+2. **Direct Connection (`DIRECT_URL`)**:
+   - Select **Session Mode** (Port `5432`) or direct database connection.
+   - Format:
+     ```
+     postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
+     ```
+   - This direct connection is used exclusively by Prisma CLI for running schema migrations (`prisma migrate deploy`), as migrations require advisory locks unsupported by transaction poolers.
 
-# Or run individually:
-npm run db:push   # Prepares schema and runs `prisma db push`
-npm run db:seed   # Seeds initial admin, ATHANG IMPEX tenant, catalog & channels
+### Step 3: Run Database Migrations
+Before logging in, apply the Prisma migration to your Supabase database from your local machine:
+
+**Windows PowerShell:**
+```powershell
+$env:DATABASE_URL="postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true"
+$env:DIRECT_URL="postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres"
+
+# Apply all migrations safely
+npm run db:migrate:deploy
+
+# Bootstrap initial administrator and ATHANG IMPEX business profile
+npm run db:bootstrap
 ```
 
-### Automatic Provider Switching (`scripts/prepare-prisma.js`)
-- The project includes `scripts/prepare-prisma.js` which automatically switches the datasource provider in `prisma/schema.prisma` between `sqlite` (for local development) and `postgresql` (for remote databases / Vercel).
-- During `npm run build` or `npm run postinstall` on Vercel, `prepare-prisma.js` automatically executes and configures Prisma Client for PostgreSQL.
+**Linux / macOS:**
+```bash
+export DATABASE_URL="postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true"
+export DIRECT_URL="postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres"
 
-### Automatic Runtime Administrator Bootstrap
-- Even if `npm run db:seed` was not manually run, the platform includes a self-healing bootstrap in `src/lib/bootstrap.ts`.
-- When an administrator attempts to log in, if `Administrator.count() === 0`, the system automatically provisions the default administrator:
-  - **Email**: `admin@platform.local` (or `ADMIN_DEFAULT_EMAIL` environment variable)
-  - **Password**: `AdminPassword123!` (or `ADMIN_DEFAULT_PASSWORD` environment variable)
-  - **Role**: `OWNER`
-- This bootstrap runs non-destructively and will never overwrite or duplicate existing administrator accounts.
+# Apply all migrations safely
+npm run db:migrate:deploy
+
+# Bootstrap initial administrator and ATHANG IMPEX business profile
+npm run db:bootstrap
+```
 
 ---
 
-## 3. Required Production Environment Variables
+## 3. Vercel Environment Variables Checklist
 
 Configure these in **Vercel Project Settings &rarr; Environment Variables**:
 
-| Variable Name | Required | Description | Example / Format |
+### Required Core Variables
+| Variable Name | Environments | Description | Format / Example |
 |---|---|---|---|
-| `DATABASE_URL` | **YES** | PostgreSQL connection string | `postgresql://user:pass@ep-xyz.us-east-2.aws.neon.tech/neondb?sslmode=require` |
-| `ENCRYPTION_MASTER_KEY` | **YES** | 64-character hex string (32 bytes AES-256) | Run `openssl rand -hex 32` or `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `JWT_SECRET` | **YES** | Secure secret for admin session tokens | Run `openssl rand -hex 32` |
-| `APP_BASE_URL` | **YES** | Authoritative production URL (no trailing slash) | `https://athangimpexbot.vercel.app` |
-| `ADMIN_DEFAULT_PASSWORD` | Recommended | Initial admin login password | `StrongPassword123!` |
-| `DEFAULT_BUSINESS_SLUG` | Optional | Defaults to `athang-impex` | `athang-impex` |
-| `GROQ_API_KEY` | Optional (if set in DB) | Default Groq fallback API key | `gsk_...` |
-| `MISTRAL_API_KEY` | Optional (if set in DB) | Default Mistral fallback API key | `...` |
-| `GEMINI_API_KEY` | Optional (if set in DB) | Default Gemini fallback API key | `AIzaSy...` |
+| `DATABASE_URL` | Production, Preview, Development | Supabase pooled connection (Port 6543, Transaction mode) | `postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true` |
+| `DIRECT_URL` | Production, Preview, Development | Supabase direct connection (Port 5432) for migrations | `postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres` |
+| `ENCRYPTION_MASTER_KEY` | Production, Preview, Development | 64-character hex string (32 bytes AES-256-GCM) | Run `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `JWT_SECRET` | Production, Preview, Development | Secret for signing admin session JWT tokens | 32+ character random string |
+| `APP_BASE_URL` | Production, Preview | Authoritative production URL without trailing slash | `https://athangimpexbot.vercel.app` |
 
-> **Security Note**: Sensitive channel credentials (WhatsApp Access Token, App Secret, Telegram Bot Token) and AI API keys are stored encrypted in the database using `AES-256-GCM` with `ENCRYPTION_MASTER_KEY`. They can also be entered directly via the Web Dashboard.
+### Optional Admin Bootstrap Customization
+| Variable Name | Environments | Description | Default if omitted |
+|---|---|---|---|
+| `ADMIN_DEFAULT_EMAIL` | Production, Preview | Initial owner email | `admin@platform.local` |
+| `ADMIN_DEFAULT_PASSWORD` | Production, Preview | Initial owner password | `AdminPassword123!` |
+| `ADMIN_DEFAULT_NAME` | Production, Preview | Initial owner display name | `Platform Owner` |
+| `LOGIN_RATE_LIMIT_MAX` | Production | Max login attempts per window | `5` |
+| `LOGIN_RATE_LIMIT_WINDOW_SEC` | Production | Rate limit window in seconds | `900` (15 minutes) |
+
+### Optional Channel & AI Fallback Credentials (Can also be entered via Web UI)
+| Variable Name | Environments | Description |
+|---|---|---|
+| `GROQ_API_KEY` | Production, Preview | Groq fallback API key (`gsk_...`) |
+| `MISTRAL_API_KEY` | Production, Preview | Mistral fallback API key |
+| `GEMINI_API_KEY` | Production, Preview | Google Gemini fallback API key (`AIzaSy...`) |
+| `WHATSAPP_PHONE_NUMBER_ID` | Production | Meta Phone Number ID |
+| `WHATSAPP_WABA_ID` | Production | WhatsApp Business Account ID |
+| `WHATSAPP_VERIFY_TOKEN` | Production | Custom webhook verification token |
+| `WHATSAPP_ACCESS_TOKEN` | Production | Meta permanent system user token |
+| `WHATSAPP_APP_SECRET` | Production | Meta App Secret for HMAC SHA-256 verification |
+| `TELEGRAM_BOT_TOKEN` | Production | Telegram Bot API token from @BotFather |
+| `TELEGRAM_BOT_USERNAME` | Production | Telegram bot username (e.g. `AthangImpexBot`) |
+| `TELEGRAM_SECRET_TOKEN` | Production | Telegram webhook verification header token |
+
+> **Security Note**: All secrets entered via the Admin Dashboard or stored in the database are encrypted at rest using `AES-256-GCM`. Database credentials are never logged or exposed in client responses.
 
 ---
 
