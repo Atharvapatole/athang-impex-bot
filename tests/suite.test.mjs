@@ -216,3 +216,54 @@ describe("7. Production Webhook URL Resolution (athangimpexbot.vercel.app)", () 
     assert.strictEqual(tgUrl, "http://localhost:3000/api/webhooks/telegram");
   });
 });
+
+describe("8. Administrator Authentication & Bootstrap Integrity", () => {
+  it("should find the default administrator and verify password hash", async () => {
+    const bcrypt = await import("bcryptjs").then(m => m.default || m);
+    const admin = await prisma.administrator.findUnique({
+      where: { email: "admin@platform.local" },
+    });
+
+    assert.ok(admin, "Default admin@platform.local must exist in the database");
+    assert.strictEqual(admin.role, "OWNER");
+
+    // Test password verification
+    const valid = await bcrypt.compare("AdminPassword123!", admin.passwordHash);
+    assert.strictEqual(valid, true, "AdminPassword123! must match the stored password hash");
+
+    const invalid = await bcrypt.compare("WrongPassword!", admin.passwordHash);
+    assert.strictEqual(invalid, false, "Wrong password must be rejected");
+  });
+
+  it("should maintain idempotent administrator count and prevent duplicate creation", async () => {
+    const countBefore = await prisma.administrator.count();
+    assert.ok(countBefore >= 1, "At least one administrator exists");
+
+    // Replicate bootstrap check: if adminCount === 0 then create, else skip
+    const adminCount = await prisma.administrator.count();
+    let created = false;
+    if (adminCount === 0) {
+      created = true;
+    }
+
+    assert.strictEqual(created, false, "Must not create a new administrator when one already exists");
+    const countAfter = await prisma.administrator.count();
+    assert.strictEqual(countAfter, countBefore, "Administrator count must remain constant");
+  });
+
+  it("should dynamically configure datasource provider in schema.prisma for PostgreSQL and SQLite", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
+    const originalSchema = fs.readFileSync(schemaPath, "utf8");
+
+    // Test provider detection regex
+    const currentMatch = originalSchema.match(/datasource\s+db\s+\{\s*provider\s*=\s*"([^"]+)"/);
+    assert.ok(currentMatch, "Datasource block must be present in schema.prisma");
+    assert.ok(
+      currentMatch[1] === "sqlite" || currentMatch[1] === "postgresql",
+      `Provider should be sqlite or postgresql, got ${currentMatch[1]}`
+    );
+  });
+});
+

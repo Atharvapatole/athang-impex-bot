@@ -50,20 +50,34 @@ This guide describes how to deploy the production **ATHANG IMPEX** AI Chatbot Pl
 1. Create a project at [supabase.com](https://supabase.com).
 2. Go to **Project Settings** &rarr; **Database** &rarr; **Connection String** (use Transaction Pooler / port 6543).
 
-### Database Migration
-Before first build or during Vercel deployment:
+### Database Migration & Seeding
+Before first login or during Vercel deployment, apply the Prisma schema to your remote PostgreSQL database:
+
 ```bash
-# Push Prisma schema to PostgreSQL
-npx prisma db push
+# Set your remote PostgreSQL connection string
+export DATABASE_URL="postgresql://user:password@host/dbname?sslmode=require"
+# On Windows PowerShell:
+# $env:DATABASE_URL="postgresql://user:password@host/dbname?sslmode=require"
 
-# Seed production ATHANG IMPEX tenant & catalog
-node prisma/seed.js
+# 1. Automatically configure schema for PostgreSQL, push tables, and seed ATHANG IMPEX
+npm run db:setup
+
+# Or run individually:
+npm run db:push   # Prepares schema and runs `prisma db push`
+npm run db:seed   # Seeds initial admin, ATHANG IMPEX tenant, catalog & channels
 ```
 
-In `package.json`, the build script can run Prisma generation automatically:
-```json
-"postinstall": "prisma generate"
-```
+### Automatic Provider Switching (`scripts/prepare-prisma.js`)
+- The project includes `scripts/prepare-prisma.js` which automatically switches the datasource provider in `prisma/schema.prisma` between `sqlite` (for local development) and `postgresql` (for remote databases / Vercel).
+- During `npm run build` or `npm run postinstall` on Vercel, `prepare-prisma.js` automatically executes and configures Prisma Client for PostgreSQL.
+
+### Automatic Runtime Administrator Bootstrap
+- Even if `npm run db:seed` was not manually run, the platform includes a self-healing bootstrap in `src/lib/bootstrap.ts`.
+- When an administrator attempts to log in, if `Administrator.count() === 0`, the system automatically provisions the default administrator:
+  - **Email**: `admin@platform.local` (or `ADMIN_DEFAULT_EMAIL` environment variable)
+  - **Password**: `AdminPassword123!` (or `ADMIN_DEFAULT_PASSWORD` environment variable)
+  - **Role**: `OWNER`
+- This bootstrap runs non-destructively and will never overwrite or duplicate existing administrator accounts.
 
 ---
 
