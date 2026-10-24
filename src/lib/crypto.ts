@@ -4,10 +4,10 @@ import bcrypt from "bcryptjs";
 /**
  * Validates and gets the 32-byte master key from environment variables.
  */
-function getMasterKey(): Buffer {
+function getMasterKey(): Buffer | null {
   const hexOrString = process.env.ENCRYPTION_MASTER_KEY;
   if (!hexOrString) {
-    throw new Error("ENCRYPTION_MASTER_KEY is not defined in environment variables");
+    return null;
   }
 
   // If 64 hex characters (32 bytes)
@@ -26,6 +26,9 @@ function getMasterKey(): Buffer {
 export function encryptCredential(plaintext: string): string {
   if (!plaintext) return "";
   const masterKey = getMasterKey();
+  if (!masterKey) {
+    throw new Error("ENCRYPTION_MASTER_KEY is not defined in environment variables");
+  }
   const iv = crypto.randomBytes(12); // 96-bit IV standard for GCM
   const cipher = crypto.createCipheriv("aes-256-gcm", masterKey, iv);
 
@@ -46,8 +49,13 @@ export function decryptCredential(encryptedData: string): string {
     throw new Error("Invalid encrypted format. Expected iv:authTag:ciphertext");
   }
 
-  const [ivB64, authTagB64, ciphertextB64] = parts;
   const masterKey = getMasterKey();
+  if (!masterKey) {
+    // Graceful fallback during static build analysis when runtime secrets are not yet injected
+    return "";
+  }
+
+  const [ivB64, authTagB64, ciphertextB64] = parts;
   const iv = Buffer.from(ivB64, "base64");
   const authTag = Buffer.from(authTagB64, "base64");
 

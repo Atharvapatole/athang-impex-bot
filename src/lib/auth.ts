@@ -1,7 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "./prisma";
 import { Role, SessionUser } from "./types";
 
 const JWT_SECRET_STRING = process.env.JWT_SECRET || "fallback-secret-for-development-32chars-min";
@@ -51,6 +50,18 @@ export async function requireAuth(allowedRoles: Role[] = ["OWNER", "ADMIN", "SUP
     throw new Error("FORBIDDEN");
   }
   return user;
+}
+
+/**
+ * Detects Next.js internal control-flow errors (e.g. DynamicServerError)
+ * which must be re-thrown so Next.js handles dynamic route bailouts at build time.
+ */
+export function isDynamicServerError(err: any): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  return (
+    err.digest === "DYNAMIC_SERVER_USAGE" ||
+    (typeof err.message === "string" && err.message.includes("Dynamic server usage"))
+  );
 }
 
 export function setSessionCookie(response: NextResponse, token: string): void {

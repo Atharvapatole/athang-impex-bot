@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, isDynamicServerError } from "@/lib/auth";
 import { decryptCredential } from "@/lib/crypto";
 import { GroqAdapter } from "@/lib/ai/groq";
 import { MistralAdapter } from "@/lib/ai/mistral";
@@ -9,6 +9,18 @@ import { GeminiAdapter } from "@/lib/ai/gemini";
 export async function POST(req: NextRequest) {
   try {
     await requireAuth(["OWNER", "ADMIN"]);
+  } catch (authErr: any) {
+    if (isDynamicServerError(authErr)) {
+      throw authErr;
+    }
+    const isForbidden = authErr?.message === "FORBIDDEN";
+    return NextResponse.json(
+      { success: false, error: isForbidden ? "Forbidden" : "Unauthorized" },
+      { status: isForbidden ? 403 : 401 }
+    );
+  }
+
+  try {
     const { configId, provider, apiKey, modelId } = await req.json();
 
     let resolvedKey = apiKey;
@@ -64,6 +76,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(testResult);
   } catch (err: any) {
+    if (isDynamicServerError(err)) {
+      throw err;
+    }
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

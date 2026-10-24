@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, isDynamicServerError } from "@/lib/auth";
 import { decryptCredential, encryptCredential, maskSecret } from "@/lib/crypto";
 
 export async function GET(req: NextRequest) {
   try {
     await requireAuth(["OWNER", "ADMIN", "SUPPORT_AGENT"]);
-    const { searchParams } = new URL(req.url);
-    const businessId = searchParams.get("businessId");
+  } catch (authErr: any) {
+    if (isDynamicServerError(authErr)) {
+      throw authErr;
+    }
+    const isForbidden = authErr?.message === "FORBIDDEN";
+    return NextResponse.json(
+      { error: isForbidden ? "Forbidden" : "Unauthorized" },
+      { status: isForbidden ? 403 : 401 }
+    );
+  }
+
+  try {
+    const businessId = req.nextUrl.searchParams.get("businessId");
 
     const whereClause: any = {};
     if (businessId) {
@@ -49,13 +60,31 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ configs: sanitized });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    if (isDynamicServerError(err)) {
+      throw err;
+    }
+    return NextResponse.json(
+      { error: err?.message || "Failed to fetch AI provider configurations" },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireAuth(["OWNER", "ADMIN"]);
+    await requireAuth(["OWNER", "ADMIN"]);
+  } catch (authErr: any) {
+    if (isDynamicServerError(authErr)) {
+      throw authErr;
+    }
+    const isForbidden = authErr?.message === "FORBIDDEN";
+    return NextResponse.json(
+      { error: isForbidden ? "Forbidden" : "Unauthorized" },
+      { status: isForbidden ? 403 : 401 }
+    );
+  }
+
+  try {
     const body = await req.json();
 
     const {
@@ -113,6 +142,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, configId: config.id });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    if (isDynamicServerError(err)) {
+      throw err;
+    }
+    return NextResponse.json(
+      { error: err?.message || "Failed to update AI provider configuration" },
+      { status: 500 }
+    );
   }
 }
