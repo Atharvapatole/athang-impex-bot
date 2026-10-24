@@ -1,0 +1,264 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Administrator {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         String    @default("ADMIN") // OWNER, ADMIN, SUPPORT_AGENT
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id        String        @id @default(cuid())
+  token     String        @unique
+  adminId   String
+  admin     Administrator @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime      @default(now())
+}
+
+model Business {
+  id                  String                      @id @default(cuid())
+  slug                String                      @unique
+  name                String
+  description         String?
+  website             String?
+  email               String?
+  phone               String?
+  timezone            String                      @default("UTC")
+  isActive            Boolean                     @default(true)
+  systemInstructions  String
+  whenYouDontKnow     String
+  welcomeMessage      String
+  safeFailureMessage  String
+  humanHandoffMessage String
+  closingMessage      String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  instructionVersions BusinessInstructionVersion[]
+  channels            ChannelIntegration[]
+  aiConfigs           AIProviderConfig[]
+  kbSources           KnowledgeBaseSource[]
+  kbChunks            KnowledgeBaseChunk[]
+  contacts            Contact[]
+  conversations       Conversation[]
+  leads               Lead[]
+  jobs                MessageJob[]
+  usageRecords        UsageRecord[]
+}
+
+model BusinessInstructionVersion {
+  id                  String   @id @default(cuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  systemInstructions  String
+  whenYouDontKnow     String
+  welcomeMessage      String
+  safeFailureMessage  String
+  humanHandoffMessage String
+  closingMessage      String?
+  editedByAdminId     String?
+  versionNote         String?
+  createdAt           DateTime @default(now())
+}
+
+model ChannelIntegration {
+  id                   String    @id @default(cuid())
+  businessId           String
+  business             Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  channelType          String    // WHATSAPP, TELEGRAM
+  name                 String
+  isEnabled            Boolean   @default(false)
+  credentialsEncrypted String    // AES-256-GCM encrypted JSON string
+  phoneNumberId        String?
+  wabaId               String?
+  webhookVerifyToken   String?
+  botUsername          String?
+  webhookSecretToken   String?
+  status               String    @default("NOT_CONFIGURED") // NOT_CONFIGURED, CONFIGURED, CONNECTION_TESTED, WEBHOOK_VERIFIED, RECEIVING_MESSAGES, ERROR
+  lastTestedAt         DateTime?
+  lastInboundAt        DateTime?
+  lastOutboundAt       DateTime?
+  lastError            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model AIProviderConfig {
+  id                  String    @id @default(cuid())
+  businessId          String?
+  business            Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  provider            String    // GROQ, MISTRAL, GEMINI
+  apiKeyEncrypted     String    // AES-256-GCM encrypted
+  modelId             String    // e.g., llama-3.3-70b-versatile, mistral-large-latest, gemini-1.5-flash
+  priority            Int       @default(1) // 1: Groq, 2: Mistral, 3: Gemini
+  isEnabled           Boolean   @default(true)
+  timeoutMs           Int       @default(15000)
+  maxTokens           Int       @default(1024)
+  temperature         Float     @default(0.3)
+  status              String    @default("NOT_CONFIGURED") // NOT_CONFIGURED, CONFIGURED, CONNECTION_TESTED, ERROR
+  lastTestedAt        DateTime?
+  lastSuccessAt       DateTime?
+  lastError           String?
+  dailyRequestLimit   Int?
+  monthlyRequestLimit Int?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model KnowledgeBaseSource {
+  id               String               @id @default(cuid())
+  businessId       String
+  business         Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sourceUrl        String
+  name             String
+  status           String               @default("PENDING") // PENDING, FETCHING, EXTRACTING, INDEXED, FAILED
+  fileSizeBytes    Int                  @default(0)
+  pageCount        Int                  @default(0)
+  chunkCount       Int                  @default(0)
+  extractedPreview String?
+  errorMessage     String?
+  lastSyncedAt     DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  chunks           KnowledgeBaseChunk[]
+}
+
+model KnowledgeBaseChunk {
+  id            String              @id @default(cuid())
+  businessId    String
+  business      Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sourceId      String
+  source        KnowledgeBaseSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  chunkIndex    Int
+  pageNumber    Int?
+  content       String
+  tokenEstimate Int                 @default(0)
+  createdAt     DateTime            @default(now())
+}
+
+model Contact {
+  id            String         @id @default(cuid())
+  businessId    String
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  channelType   String         // WHATSAPP, TELEGRAM
+  identifier    String         // Phone number or Telegram chat ID
+  displayName   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  conversations Conversation[]
+  leads         Lead[]
+}
+
+model Conversation {
+  id                String    @id @default(cuid())
+  businessId        String
+  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contactId         String
+  contact           Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  channelType       String
+  channelIdentifier String
+  status            String    @default("OPEN") // OPEN, RESOLVED, ESCALATED
+  isHumanTakeover   Boolean   @default(false)
+  lastMessageAt     DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  messages          Message[]
+  leads             Lead[]
+}
+
+model Message {
+  id               String       @id @default(cuid())
+  conversationId   String
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderType       String       // CUSTOMER, AI, AGENT, SYSTEM
+  content          String
+  channelMessageId String?
+  state            String       @default("RECEIVED") // RECEIVED, QUEUED, PROCESSING, RESPONSE_GENERATED, SENDING, SENT, DELIVERED, FAILED, ESCALATED
+  aiProviderUsed   String?      // GROQ, MISTRAL, GEMINI, SAFE_FAILURE, MANUAL
+  modelUsed        String?
+  latencyMs        Int?
+  sourceReferences String?      // JSON string of referenced chunk ids and source names
+  errorDetails     String?
+  createdAt        DateTime     @default(now())
+}
+
+model Lead {
+  id                  String        @id @default(cuid())
+  businessId          String
+  business            Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contactId           String?
+  contact             Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  conversationId      String?
+  conversation        Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  buyerName           String?
+  company             String?
+  country             String?
+  destinationPort     String?
+  productOfInterest   String?
+  quantityAndUnit     String?
+  requiredSpecs       String?
+  packagingPreference String?
+  purchaseTimeline    String?
+  emailOrPhone        String?
+  orderReference      String?
+  supportTopic        String?
+  supportIssue        String?
+  status              String        @default("NEW") // NEW, QUALIFIED, CONTACTED, CLOSED, ARCHIVED
+  customFields        String?       // JSON string for flexibility
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model MessageJob {
+  id             String    @id @default(cuid())
+  businessId     String
+  business       Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  channelType    String
+  eventPayload   String    // JSON payload
+  idempotencyKey String    @unique
+  status         String    @default("QUEUED") // QUEUED, PROCESSING, COMPLETED, FAILED
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  nextRetryAt    DateTime  @default(now())
+  lastError      String?
+  lockedAt       DateTime?
+  lockedBy       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model AuditEvent {
+  id         String   @id @default(cuid())
+  businessId String?
+  adminId    String?
+  action     String
+  resource   String
+  details    String?  // Sanitized/Redacted JSON
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+}
+
+model UsageRecord {
+  id               String   @id @default(cuid())
+  businessId       String
+  business         Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  provider         String
+  modelId          String
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  isSuccessful     Boolean  @default(true)
+  latencyMs        Int      @default(0)
+  createdAt        DateTime @default(now())
+}
