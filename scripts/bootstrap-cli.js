@@ -7,27 +7,59 @@ require(path.join(__dirname, "prepare-prisma.js"));
 
 const prisma = new PrismaClient();
 
+// Helper to parse CLI arguments like --email foo@bar.com --password secret --reset-password
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const options = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--reset-password") {
+      options.resetPassword = true;
+    } else if (args[i].startsWith("--") && i + 1 < args.length) {
+      const key = args[i].slice(2);
+      options[key] = args[i + 1];
+      i++;
+    }
+  }
+  return options;
+}
+
 async function main() {
   console.log("🔒 Checking administrator accounts and business bootstrap...");
+  const cliArgs = parseArgs();
 
   try {
-    // 1. Verify connectivity
     const adminCount = await prisma.administrator.count();
+    const email = (cliArgs.email || process.env.ADMIN_DEFAULT_EMAIL || "admin@platform.local").toLowerCase().trim();
+    const password = cliArgs.password || process.env.ADMIN_DEFAULT_PASSWORD || "AdminPassword123!";
+    const name = cliArgs.name || process.env.ADMIN_DEFAULT_NAME || "Platform Owner";
 
     if (adminCount > 0) {
-      const existingAdmins = await prisma.administrator.findMany({
-        select: { email: true, name: true, role: true, createdAt: true },
-      });
-      console.log(`✅ Database already has ${adminCount} administrator account(s):`);
-      for (const a of existingAdmins) {
-        console.log(`   - ${a.email} (${a.role}) - created: ${a.createdAt.toISOString()}`);
+      if (cliArgs.resetPassword) {
+        // Explicit password update requested by operator
+        const existing = await prisma.administrator.findUnique({ where: { email } });
+        if (!existing) {
+          console.error(`❌ Cannot reset password: administrator with email "${email}" not found.`);
+          process.exit(1);
+        }
+        const passwordHash = await bcrypt.hash(password, 12);
+        await prisma.administrator.update({
+          where: { email },
+          data: { passwordHash, updatedAt: new Date() },
+        });
+        console.log(`✅ Successfully updated password for administrator: ${email}`);
+      } else {
+        const existingAdmins = await prisma.administrator.findMany({
+          select: { email: true, name: true, role: true, createdAt: true },
+        });
+        console.log(`✅ Database already has ${adminCount} administrator account(s):`);
+        for (const a of existingAdmins) {
+          console.log(`   - ${a.email} (${a.role}) - created: ${a.createdAt.toISOString()}`);
+        }
+        console.log("ℹ️  Existing credentials and passwords were left intact (non-destructive).");
+        console.log("ℹ️  To rotate an existing administrator password, run:");
+        console.log("   node scripts/bootstrap-cli.js --reset-password --email <email> --password <newPassword>");
       }
-      console.log("ℹ️  Existing credentials and passwords were left intact (non-destructive).");
     } else {
-      const email = (process.env.ADMIN_DEFAULT_EMAIL || "admin@platform.local").toLowerCase().trim();
-      const password = process.env.ADMIN_DEFAULT_PASSWORD || "AdminPassword123!";
-      const name = process.env.ADMIN_DEFAULT_NAME || "Platform Owner";
-
       const passwordHash = await bcrypt.hash(password, 12);
 
       const created = await prisma.administrator.create({

@@ -28,13 +28,21 @@ export async function GET(req: NextRequest) {
     }
 
     console.error("[Health Ready Error]", err);
+    let safeMessage = "Database connectivity check failed";
+    if (err?.code === "P2021") {
+      safeMessage = "Database schema uninitialized (tables missing). Run supabase/setup.sql in Supabase SQL Editor or run npm run db:migrate:deploy.";
+    } else if (err?.code === "P1001") {
+      safeMessage = "Database host unreachable. Verify network and DATABASE_URL.";
+    } else if (err?.code === "P1000") {
+      safeMessage = "Database authentication failed. Verify database password.";
+    }
+
     return NextResponse.json(
       {
         status: "not_ready",
         database: "disconnected",
-        error: "Database connectivity check failed",
+        error: safeMessage,
         code: err?.code || "DB_ERROR",
-        message: err?.message ? err.message.substring(0, 150) : "Database unavailable",
       },
       { status: 503 }
     );

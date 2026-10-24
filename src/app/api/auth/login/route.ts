@@ -76,10 +76,18 @@ export async function POST(req: NextRequest) {
       err?.name === "PrismaClientRustPanicError";
 
     if (isPrismaError) {
+      let userFriendlyMessage = "Database connectivity error or schema uninitialized. Please check DATABASE_URL and run prisma migrations.";
+      if (err?.code === "P2021") {
+        userFriendlyMessage = "Database schema not initialized (tables do not exist). Please run supabase/setup.sql in Supabase SQL Editor or run npm run db:migrate:deploy.";
+      } else if (err?.code === "P1001") {
+        userFriendlyMessage = "Cannot reach Supabase database server. Please check your network and DATABASE_URL host.";
+      } else if (err?.code === "P1000") {
+        userFriendlyMessage = "Database authentication failed. Please verify your Supabase database password in DATABASE_URL.";
+      }
+
       return NextResponse.json(
         {
-          error:
-            "Database connectivity error or schema uninitialized. Please check DATABASE_URL and run prisma migrations.",
+          error: userFriendlyMessage,
           code: err?.code || "DATABASE_UNAVAILABLE",
         },
         { status: 503 }

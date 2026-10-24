@@ -284,5 +284,56 @@ describe("8. Administrator Authentication & Bootstrap Integrity", () => {
     const lock = fs.readFileSync(lockFile, "utf8");
     assert.ok(lock.includes('provider = "postgresql"'), "Lockfile provider must be postgresql");
   });
+
+  it("should verify supabase/setup.sql contains all required tables, constraints, and initial seed", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const sqlPath = path.join(process.cwd(), "supabase", "setup.sql");
+
+    assert.ok(fs.existsSync(sqlPath), "supabase/setup.sql must exist");
+    const sql = fs.readFileSync(sqlPath, "utf8");
+
+    // Verify all 13 core models from Prisma schema
+    const requiredTables = [
+      "Administrator",
+      "Session",
+      "Business",
+      "BusinessInstructionVersion",
+      "ChannelIntegration",
+      "AIProviderConfig",
+      "KnowledgeBaseSource",
+      "KnowledgeBaseChunk",
+      "Contact",
+      "Conversation",
+      "Message",
+      "Lead",
+      "MessageJob",
+      "AuditEvent",
+      "UsageRecord",
+    ];
+
+    for (const table of requiredTables) {
+      assert.ok(
+        sql.includes(`CREATE TABLE IF NOT EXISTS "${table}"`),
+        `supabase/setup.sql must create table ${table}`
+      );
+    }
+
+    // Verify Prisma migrations compatibility and seed
+    assert.ok(sql.includes('"_prisma_migrations"'), "Must include _prisma_migrations table");
+    assert.ok(sql.includes("20261024000000_init"), "Must record initial migration");
+    assert.ok(sql.includes("admin@platform.local"), "Must seed default administrator");
+    assert.ok(sql.includes("athang-impex"), "Must seed default business");
+
+    // Verify Row Level Security is explicitly enabled on all tables
+    for (const table of requiredTables) {
+      assert.ok(
+        sql.includes(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY;`),
+        `supabase/setup.sql must enable RLS on ${table}`
+      );
+    }
+    assert.ok(sql.includes("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;"), "Must revoke access from anon role");
+    assert.ok(sql.includes("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM authenticated;"), "Must revoke access from authenticated role");
+  });
 });
 
