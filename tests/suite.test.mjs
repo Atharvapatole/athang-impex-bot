@@ -337,3 +337,41 @@ describe("8. Administrator Authentication & Bootstrap Integrity", () => {
   });
 });
 
+describe("9. Direct Access Mode & Login Panel Removal", () => {
+  it("should verify home page redirects directly to /dashboard without login check", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const homeCode = fs.readFileSync(path.join(process.cwd(), "src", "app", "page.tsx"), "utf8");
+
+    assert.ok(homeCode.includes('redirect("/dashboard")'), "Home page must redirect to /dashboard");
+    assert.strictEqual(homeCode.includes('redirect("/login")'), false, "Home page must not redirect to /login");
+  });
+
+  it("should verify login page redirects directly to /dashboard", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const loginCode = fs.readFileSync(path.join(process.cwd(), "src", "app", "login", "page.tsx"), "utf8");
+
+    assert.ok(loginCode.includes('redirect("/dashboard")'), "Login page must redirect to /dashboard");
+    assert.strictEqual(loginCode.includes("<form"), false, "Login page must not contain a login form");
+  });
+
+  it("should verify middleware allows direct dashboard access without auth token", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const mwCode = fs.readFileSync(path.join(process.cwd(), "src", "middleware.ts"), "utf8");
+
+    assert.ok(mwCode.includes('redirect(new URL("/dashboard"'), "Middleware must redirect /login to /dashboard");
+    assert.strictEqual(mwCode.includes('redirect(new URL("/login"'), false, "Middleware must not redirect to /login");
+  });
+
+  it("should verify DashboardLayout does not contain Sign Out button or login redirects", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const layoutCode = fs.readFileSync(path.join(process.cwd(), "src", "components", "layout", "DashboardLayout.tsx"), "utf8");
+
+    assert.strictEqual(layoutCode.includes("Sign Out"), false, "DashboardLayout must not render a Sign Out button");
+    assert.strictEqual(layoutCode.includes('router.push("/login")'), false, "DashboardLayout must not push to /login");
+  });
+});
+

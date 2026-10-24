@@ -94,7 +94,7 @@ export default function SettingsPage() {
 
             <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 space-y-1">
               <span className="font-semibold text-slate-700 dark:text-slate-300">
-                Login Rate Limiting
+                API Request Rate Limiting
               </span>
               <p className="text-slate-500">
                 {settings?.loginRateLimitMax || 5} attempts per{" "}

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Building2,
@@ -17,12 +17,10 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
-  LogOut,
   Sun,
   Moon,
   Menu,
   X,
-  ChevronDown,
   Sparkles,
 } from "lucide-react";
 
@@ -50,23 +48,25 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isDark, setIsDark] = useState(true);
-  const [currentUser, setCurrentUser] = useState<{ name: string; email: string; role: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ name: string; email: string; role: string }>({
+    name: "Platform Owner",
+    email: "admin@platform.local",
+    role: "OWNER",
+  });
 
   useEffect(() => {
-    // Fetch current user
+    // Fetch current user or use default owner without login redirect
     fetch("/api/auth/me")
-      .then((res) => {
-        if (!res.ok) router.push("/login");
-        return res.json();
-      })
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data.user) setCurrentUser(data.user);
+        if (data?.user) setCurrentUser(data.user);
       })
-      .catch(() => router.push("/login"));
-  }, [router]);
+      .catch(() => {
+        // Direct access fallback
+      });
+  }, []);
 
   const toggleTheme = () => {
     const nextDark = !isDark;
@@ -78,11 +78,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-  };
-
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* Mobile Header */}
@@ -91,7 +86,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-lg">
             A
           </div>
-          <span className="font-semibold text-sm tracking-tight">AI Chat Platform</span>
+          <span className="font-semibold text-sm tracking-tight">ATHANG IMPEX</span>
         </div>
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -118,7 +113,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               ATHANG IMPEX
             </h1>
             <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              ATHANG IMPEX AI Portal
+              AI Chatbot Management
             </p>
           </div>
         </div>
@@ -146,33 +141,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
 
-        {/* User Card & Logout */}
+        {/* User Card */}
         <div className="p-4 border-t border-slate-200 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-950/30">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-500/30 flex items-center justify-center text-xs font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
                 {currentUser?.name?.charAt(0) || "A"}
               </div>
               <div className="truncate">
-                <div className="text-xs font-semibold truncate">{currentUser?.name || "Administrator"}</div>
-                <div className="text-[10px] text-slate-400 truncate">{currentUser?.role || "OWNER"}</div>
+                <div className="text-xs font-semibold truncate text-slate-800 dark:text-slate-200">
+                  {currentUser?.name || "Platform Owner"}
+                </div>
+                <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
+                  Direct Access &bull; {currentUser?.role || "OWNER"}
+                </div>
               </div>
             </div>
             <button
               onClick={toggleTheme}
-              className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400"
+              className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0"
               title="Toggle theme"
             >
               {isDark ? <Sun size={15} /> : <Moon size={15} />}
             </button>
           </div>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors border border-rose-200/50 dark:border-rose-900/30"
-          >
-            <LogOut size={14} />
-            <span>Sign Out</span>
-          </button>
         </div>
       </aside>
 

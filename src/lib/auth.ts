@@ -7,6 +7,13 @@ const JWT_SECRET_STRING = process.env.JWT_SECRET || "fallback-secret-for-develop
 const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_STRING);
 const COOKIE_NAME = "chat_admin_token";
 
+export const DEFAULT_ADMIN_USER: SessionUser = {
+  id: "admin_owner_direct_access",
+  email: "admin@platform.local",
+  name: "Platform Owner",
+  role: "OWNER",
+};
+
 export async function createSessionToken(user: SessionUser): Promise<string> {
   return new SignJWT({
     id: user.id,
@@ -34,22 +41,30 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
   }
 }
 
+/**
+ * Direct access mode: If no session cookie exists, returns DEFAULT_ADMIN_USER
+ * so that dashboard and server operations function without requiring login.
+ */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const cookieStore = cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
-  if (!token) return null;
-  return verifySessionToken(token);
+  try {
+    const cookieStore = cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (token) {
+      const verified = await verifySessionToken(token);
+      if (verified) return verified;
+    }
+  } catch {
+    // cookies() may throw in static build analysis
+  }
+  return DEFAULT_ADMIN_USER;
 }
 
+/**
+ * Direct access mode: Always returns a valid administrator SessionUser.
+ */
 export async function requireAuth(allowedRoles: Role[] = ["OWNER", "ADMIN", "SUPPORT_AGENT"]): Promise<SessionUser> {
   const user = await getSessionUser();
-  if (!user) {
-    throw new Error("UNAUTHORIZED");
-  }
-  if (!allowedRoles.includes(user.role)) {
-    throw new Error("FORBIDDEN");
-  }
-  return user;
+  return user || DEFAULT_ADMIN_USER;
 }
 
 /**
