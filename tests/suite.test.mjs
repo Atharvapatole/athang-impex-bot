@@ -375,3 +375,55 @@ describe("9. Direct Access Mode & Login Panel Removal", () => {
   });
 });
 
+describe("10. Business Profile & AI Providers Fallback Verification", () => {
+  it("should verify Business Profile page directly manages ATHANG IMPEX with all operational and AI fields", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const bizPage = fs.readFileSync(path.join(process.cwd(), "src", "app", "businesses", "page.tsx"), "utf8");
+
+    assert.ok(bizPage.includes("ATHANG IMPEX"), "Must display ATHANG IMPEX profile");
+    assert.ok(bizPage.includes("productsServices"), "Must include products and services field");
+    assert.ok(bizPage.includes("businessHours"), "Must include business hours field");
+    assert.ok(bizPage.includes("supportedLanguages"), "Must include supported languages field");
+    assert.ok(bizPage.includes("faq"), "Must include FAQ field");
+    assert.ok(bizPage.includes("systemInstructions"), "Must include system instructions field");
+    assert.ok(bizPage.includes("Save Changes"), "Must have Save Changes button");
+    assert.ok(bizPage.includes("Reset"), "Must have Reset button");
+  });
+
+  it("should verify AI Providers page configures 3-tier fallback chain with show/hide password toggles", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const aiPage = fs.readFileSync(path.join(process.cwd(), "src", "app", "ai-providers", "page.tsx"), "utf8");
+
+    assert.ok(aiPage.includes("GROQ"), "Must support Groq");
+    assert.ok(aiPage.includes("MISTRAL"), "Must support Mistral");
+    assert.ok(aiPage.includes("GEMINI"), "Must support Gemini");
+    assert.ok(aiPage.includes("Test Connection"), "Must include Test Connection button");
+    assert.ok(aiPage.includes("EyeOff"), "Must include show/hide password toggle");
+    assert.ok(aiPage.includes("Deterministic High-Availability Fallback Chain"), "Must include visual fallback chain");
+  });
+
+  it("should verify Business API supports PATCH with optional operational fields", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const bizApi = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "businesses", "route.ts"), "utf8");
+
+    assert.ok(bizApi.includes("export async function PATCH"), "Must export PATCH handler");
+    assert.ok(bizApi.includes("productsServices"), "Must handle productsServices");
+    assert.ok(bizApi.includes("faq"), "Must handle faq");
+  });
+
+  it("should verify AI Providers API auto-provisions canonical 3 tiers if empty", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const aiApi = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "ai-providers", "route.ts"), "utf8");
+
+    assert.ok(aiApi.includes("GROQ"), "Must include Groq tier");
+    assert.ok(aiApi.includes("MISTRAL"), "Must include Mistral tier");
+    assert.ok(aiApi.includes("GEMINI"), "Must include Gemini tier");
+    assert.ok(aiApi.includes("maskSecret"), "Must mask secrets before sending to frontend");
+  });
+});
+
+

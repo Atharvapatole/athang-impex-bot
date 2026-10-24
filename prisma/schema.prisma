@@ -35,6 +35,11 @@ model Business {
   website             String?
   email               String?
   phone               String?
+  address             String?
+  productsServices    String?
+  businessHours       String?
+  supportedLanguages  String?
+  faq                 String?
   timezone            String                      @default("UTC")
   isActive            Boolean                     @default(true)
   systemInstructions  String

@@ -25,11 +25,52 @@ export async function GET(req: NextRequest) {
       whereClause.businessId = businessId;
     }
 
-    const configs = await prisma.aIProviderConfig.findMany({
+    let configs = await prisma.aIProviderConfig.findMany({
       where: whereClause,
       orderBy: { priority: "asc" },
       include: { business: { select: { name: true, slug: true } } },
     });
+
+    // Auto-seed canonical AI fallback tiers if empty
+    if (configs.length === 0) {
+      let targetBiz = await prisma.business.findFirst({
+        where: { slug: "athang-impex" },
+      });
+      if (!targetBiz) {
+        targetBiz = await prisma.business.findFirst();
+      }
+
+      if (targetBiz) {
+        const defaultTiers = [
+          { provider: "GROQ", modelId: "llama-3.3-70b-versatile", priority: 1 },
+          { provider: "MISTRAL", modelId: "mistral-large-latest", priority: 2 },
+          { provider: "GEMINI", modelId: "gemini-1.5-flash", priority: 3 },
+        ];
+
+        for (const tier of defaultTiers) {
+          await prisma.aIProviderConfig.create({
+            data: {
+              businessId: targetBiz.id,
+              provider: tier.provider,
+              modelId: tier.modelId,
+              priority: tier.priority,
+              isEnabled: true,
+              timeoutMs: 15000,
+              maxTokens: 1024,
+              temperature: 0.3,
+              apiKeyEncrypted: encryptCredential("placeholder"),
+              status: "NOT_CONFIGURED",
+            },
+          });
+        }
+
+        configs = await prisma.aIProviderConfig.findMany({
+          where: whereClause,
+          orderBy: { priority: "asc" },
+          include: { business: { select: { name: true, slug: true } } },
+        });
+      }
+    }
 
     // Mask API keys for safe transmission to frontend
     const sanitized = configs.map((c) => {
@@ -124,9 +165,15 @@ export async function POST(req: NextRequest) {
         data: updateData,
       });
     } else {
+      let resolvedBizId = businessId;
+      if (!resolvedBizId) {
+        const targetBiz = (await prisma.business.findFirst({ where: { slug: "athang-impex" } })) || (await prisma.business.findFirst());
+        resolvedBizId = targetBiz?.id || null;
+      }
+
       config = await prisma.aIProviderConfig.create({
         data: {
-          businessId: businessId || null,
+          businessId: resolvedBizId,
           provider,
           modelId,
           priority: priority ?? 1,

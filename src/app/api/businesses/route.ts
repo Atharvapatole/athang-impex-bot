@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { ensureAdministratorBootstrap } from "@/lib/bootstrap";
 
 export async function GET() {
   try {
     await requireAuth(["OWNER", "ADMIN", "SUPPORT_AGENT"]);
 
-    const businesses = await prisma.business.findMany({
+    let businesses = await prisma.business.findMany({
       include: {
         _count: {
           select: {
@@ -20,10 +21,135 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
+    if (businesses.length === 0) {
+      await ensureAdministratorBootstrap();
+      businesses = await prisma.business.findMany({
+        include: {
+          _count: {
+            select: {
+              channels: true,
+              kbSources: true,
+              conversations: true,
+              leads: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    }
+
     return NextResponse.json({ businesses });
   } catch (err: any) {
     if (err.message === "UNAUTHORIZED") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     return NextResponse.json({ error: err.message || "Failed to fetch businesses" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const user = await requireAuth(["OWNER", "ADMIN"]);
+    const body = await req.json();
+
+    const {
+      id,
+      name,
+      description,
+      website,
+      email,
+      phone,
+      address,
+      productsServices,
+      businessHours,
+      supportedLanguages,
+      faq,
+      timezone,
+      isActive,
+      systemInstructions,
+      whenYouDontKnow,
+      welcomeMessage,
+      safeFailureMessage,
+      humanHandoffMessage,
+      closingMessage,
+      versionNote,
+    } = body;
+
+    // Find business by id or find default ATHANG IMPEX
+    let target = null;
+    if (id) {
+      target = await prisma.business.findUnique({ where: { id } });
+    }
+    if (!target) {
+      target = await prisma.business.findFirst({
+        where: { slug: "athang-impex" },
+      });
+    }
+    if (!target) {
+      target = await prisma.business.findFirst();
+    }
+
+    if (!target) {
+      await ensureAdministratorBootstrap();
+      target = await prisma.business.findFirst();
+    }
+
+    if (!target) {
+      return NextResponse.json({ error: "Business profile not found" }, { status: 404 });
+    }
+
+    const instructionsChanged =
+      (systemInstructions !== undefined && systemInstructions !== target.systemInstructions) ||
+      (whenYouDontKnow !== undefined && whenYouDontKnow !== target.whenYouDontKnow) ||
+      (welcomeMessage !== undefined && welcomeMessage !== target.welcomeMessage) ||
+      (safeFailureMessage !== undefined && safeFailureMessage !== target.safeFailureMessage) ||
+      (humanHandoffMessage !== undefined && humanHandoffMessage !== target.humanHandoffMessage) ||
+      (closingMessage !== undefined && closingMessage !== target.closingMessage);
+
+    const updated = await prisma.business.update({
+      where: { id: target.id },
+      data: {
+        name: name !== undefined ? name : target.name,
+        description: description !== undefined ? description : target.description,
+        website: website !== undefined ? website : target.website,
+        email: email !== undefined ? email : target.email,
+        phone: phone !== undefined ? phone : target.phone,
+        address: address !== undefined ? address : target.address,
+        productsServices: productsServices !== undefined ? productsServices : target.productsServices,
+        businessHours: businessHours !== undefined ? businessHours : target.businessHours,
+        supportedLanguages: supportedLanguages !== undefined ? supportedLanguages : target.supportedLanguages,
+        faq: faq !== undefined ? faq : target.faq,
+        timezone: timezone !== undefined ? timezone : target.timezone,
+        isActive: isActive !== undefined ? isActive : target.isActive,
+        systemInstructions: systemInstructions !== undefined ? systemInstructions : target.systemInstructions,
+        whenYouDontKnow: whenYouDontKnow !== undefined ? whenYouDontKnow : target.whenYouDontKnow,
+        welcomeMessage: welcomeMessage !== undefined ? welcomeMessage : target.welcomeMessage,
+        safeFailureMessage: safeFailureMessage !== undefined ? safeFailureMessage : target.safeFailureMessage,
+        humanHandoffMessage: humanHandoffMessage !== undefined ? humanHandoffMessage : target.humanHandoffMessage,
+        closingMessage: closingMessage !== undefined ? closingMessage : target.closingMessage,
+      },
+    });
+
+    if (instructionsChanged) {
+      await prisma.businessInstructionVersion.create({
+        data: {
+          businessId: updated.id,
+          systemInstructions: updated.systemInstructions,
+          whenYouDontKnow: updated.whenYouDontKnow,
+          welcomeMessage: updated.welcomeMessage,
+          safeFailureMessage: updated.safeFailureMessage,
+          humanHandoffMessage: updated.humanHandoffMessage,
+          closingMessage: updated.closingMessage,
+          editedByAdminId: user.id,
+          versionNote: versionNote || "Updated via dashboard profile editor",
+        },
+      });
+    }
+
+    return NextResponse.json({ success: true, business: updated });
+  } catch (err: any) {
+    if (err.message === "UNAUTHORIZED" || err.message === "FORBIDDEN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return NextResponse.json({ error: err.message || "Failed to update business" }, { status: 500 });
   }
 }
 

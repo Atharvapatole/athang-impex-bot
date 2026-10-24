@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS "Business" (
     "website" TEXT,
     "email" TEXT,
     "phone" TEXT,
+    "address" TEXT,
+    "productsServices" TEXT,
+    "businessHours" TEXT,
+    "supportedLanguages" TEXT,
+    "faq" TEXT,
     "timezone" TEXT NOT NULL DEFAULT 'UTC',
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "systemInstructions" TEXT NOT NULL,
@@ -47,6 +52,13 @@ CREATE TABLE IF NOT EXISTS "Business" (
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Business_pkey" PRIMARY KEY ("id")
 );
+
+-- Ensure optional business profile columns exist in existing Supabase deployments
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "productsServices" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "businessHours" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "supportedLanguages" TEXT;
+ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "faq" TEXT;
 
 CREATE TABLE IF NOT EXISTS "BusinessInstructionVersion" (
     "id" TEXT NOT NULL,
@@ -322,6 +334,11 @@ INSERT INTO "Business" (
     "website",
     "email",
     "phone",
+    "address",
+    "productsServices",
+    "businessHours",
+    "supportedLanguages",
+    "faq",
     "timezone",
     "isActive",
     "systemInstructions",
@@ -341,6 +358,11 @@ VALUES (
     'https://athangimpex.in',
     'info@athangimpex.in',
     '+91 9923407176',
+    'Navi Mumbai / Nashik, Maharashtra, India',
+    'Dehydrated Onion Powder, Dehydrated Onion Flakes, Pure Ginger Powder, Spray-Dried Tomato Powder',
+    'Mon - Sat: 09:00 - 18:00 IST (UTC+5:30) | 24/7 AI Export Sales Assistant',
+    'English, Hindi, Marathi',
+    'Q: What is the MOQ?\nA: Minimum 1 FCL (20ft container) or LCL air cargo for commercial sample batches.\n\nQ: What packaging sizes are available?\nA: 20kg / 25kg multi-wall paper bags with inner poly liner, or custom export cartons.\n\nQ: What are payment terms?\nA: Standard export terms: 30% advance T/T, balance against B/L copy, or 100% Confirmed Irrevocable L/C at sight.',
     'Asia/Kolkata',
     true,
     'You are the official AI export sales representative for ATHANG IMPEX, a merchant exporter based in India.
@@ -358,6 +380,70 @@ Key Products:
     CURRENT_TIMESTAMP
 )
 ON CONFLICT ("slug") DO NOTHING;
+
+-- Canonical AI Provider Fallback Chain (1. Groq -> 2. Mistral -> 3. Google Gemini)
+INSERT INTO "AIProviderConfig" (
+    "id",
+    "businessId",
+    "provider",
+    "apiKeyEncrypted",
+    "modelId",
+    "priority",
+    "isEnabled",
+    "timeoutMs",
+    "maxTokens",
+    "temperature",
+    "status",
+    "createdAt",
+    "updatedAt"
+)
+VALUES
+(
+    'ai_provider_groq_01',
+    'business_athang_impex_01',
+    'GROQ',
+    '000000000000000000000000:00000000000000000000000000000000:00000000000000000000000000000000',
+    'llama-3.3-70b-versatile',
+    1,
+    true,
+    15000,
+    1024,
+    0.3,
+    'NOT_CONFIGURED',
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+),
+(
+    'ai_provider_mistral_01',
+    'business_athang_impex_01',
+    'MISTRAL',
+    '000000000000000000000000:00000000000000000000000000000000:00000000000000000000000000000000',
+    'mistral-large-latest',
+    2,
+    true,
+    15000,
+    1024,
+    0.3,
+    'NOT_CONFIGURED',
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+),
+(
+    'ai_provider_gemini_01',
+    'business_athang_impex_01',
+    'GEMINI',
+    '000000000000000000000000:00000000000000000000000000000000:00000000000000000000000000000000',
+    'gemini-1.5-flash',
+    3,
+    true,
+    15000,
+    1024,
+    0.3,
+    'NOT_CONFIGURED',
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+)
+ON CONFLICT ("id") DO NOTHING;
 
 -- 13. ROW LEVEL SECURITY (RLS) HARDENING
 -- The ATHANG IMPEX application connects server-side via Prisma over direct PostgreSQL (role: postgres).
