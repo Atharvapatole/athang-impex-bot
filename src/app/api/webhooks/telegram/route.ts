@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Always match ATHANG IMPEX Telegram channel
-    const channel = await prisma.channelIntegration.findFirst({
+    let channel = await prisma.channelIntegration.findFirst({
       where: {
         business: { slug: "athang-impex" },
         channelType: "TELEGRAM",
@@ -26,6 +26,16 @@ export async function POST(req: NextRequest) {
       },
       include: { business: true },
     });
+
+    if (!channel) {
+      channel = await prisma.channelIntegration.findFirst({
+        where: {
+          channelType: "TELEGRAM",
+          isEnabled: true,
+        },
+        include: { business: true },
+      });
+    }
 
     if (!channel) {
       return NextResponse.json({ error: "Telegram integration not configured for ATHANG IMPEX" }, { status: 404 });

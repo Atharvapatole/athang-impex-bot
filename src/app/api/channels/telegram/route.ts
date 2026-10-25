@@ -4,14 +4,39 @@ import { requireAuth } from "@/lib/auth";
 import { decryptCredential, encryptCredential, maskSecret } from "@/lib/crypto";
 import { TelegramClient } from "@/lib/channels/telegram";
 import { getTelegramWebhookUrl } from "@/lib/urls";
+import { isMissingColumnError, autoHealBusinessSchema } from "@/lib/db-heal";
+import { ensureAdministratorBootstrap } from "@/lib/bootstrap";
 
 async function getAthangTelegramChannel() {
-  const business = await prisma.business.findUnique({
-    where: { slug: "athang-impex" },
-  });
+  let business: any = null;
+  try {
+    business = await prisma.business.findUnique({
+      where: { slug: "athang-impex" },
+    });
+  } catch (err: any) {
+    if (isMissingColumnError(err)) {
+      await autoHealBusinessSchema();
+      business = await prisma.business.findUnique({
+        where: { slug: "athang-impex" },
+      });
+    } else {
+      throw err;
+    }
+  }
 
   if (!business) {
-    throw new Error("ATHANG IMPEX business profile not found");
+    business = await prisma.business.findFirst();
+  }
+
+  if (!business) {
+    await ensureAdministratorBootstrap();
+    business = (await prisma.business.findFirst({
+      where: { slug: "athang-impex" },
+    })) || (await prisma.business.findFirst());
+  }
+
+  if (!business) {
+    throw new Error("ATHANG IMPEX business profile not found in database");
   }
 
   let channel = await prisma.channelIntegration.findFirst({
@@ -123,15 +148,19 @@ export async function POST(req: NextRequest) {
 
       if (testResult.success) {
         const username = testResult.botInfo?.username || channel.botUsername;
-        await prisma.channelIntegration.update({
-          where: { id: channel.id },
-          data: {
-            botUsername: username,
-            status: "CONNECTED",
-            lastTestedAt: new Date(),
-            lastError: null,
-          },
-        });
+        try {
+          await prisma.channelIntegration.update({
+            where: { id: channel.id },
+            data: {
+              botUsername: username,
+              status: "CONNECTED",
+              lastTestedAt: new Date(),
+              lastError: null,
+            },
+          });
+        } catch (dbErr: any) {
+          console.warn("[Telegram Test DB Update]", dbErr?.message || dbErr);
+        }
 
         return NextResponse.json({
           success: true,
@@ -139,14 +168,18 @@ export async function POST(req: NextRequest) {
           botInfo: testResult.botInfo,
         });
       } else {
-        await prisma.channelIntegration.update({
-          where: { id: channel.id },
-          data: {
-            status: "CONNECTION_FAILED",
-            lastTestedAt: new Date(),
-            lastError: testResult.error,
-          },
-        });
+        try {
+          await prisma.channelIntegration.update({
+            where: { id: channel.id },
+            data: {
+              status: "CONNECTION_FAILED",
+              lastTestedAt: new Date(),
+              lastError: testResult.error,
+            },
+          });
+        } catch (dbErr: any) {
+          console.warn("[Telegram Test DB Update]", dbErr?.message || dbErr);
+        }
 
         return NextResponse.json({
           success: false,

@@ -17,6 +17,8 @@ import {
   Check,
   Send,
   Trash2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 export default function TelegramConfigPage() {
@@ -38,6 +40,7 @@ export default function TelegramConfigPage() {
   const [notification, setNotification] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [diagnosticInfo, setDiagnosticInfo] = useState<any>(null);
   const [copied, setCopied] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   const loadConfig = () => {
     setLoading(true);
@@ -344,10 +347,20 @@ export default function TelegramConfigPage() {
             <h2 className="text-sm font-bold text-slate-900 dark:text-white">
               Telegram Bot Credentials & Security
             </h2>
-            <span className="text-[11px] text-slate-400 flex items-center space-x-1">
-              <Lock size={12} className="text-emerald-500" />
-              <span>Encrypted with AES-256-GCM</span>
-            </span>
+            <div className="flex items-center space-x-4">
+              <button
+                type="button"
+                onClick={() => setShowToken(!showToken)}
+                className="text-[11px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center space-x-1 transition-colors"
+              >
+                {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
+                <span>{showToken ? "Hide Token" : "Show Token"}</span>
+              </button>
+              <span className="text-[11px] text-slate-400 flex items-center space-x-1">
+                <Lock size={12} className="text-emerald-500" />
+                <span>Encrypted with AES-256-GCM</span>
+              </span>
+            </div>
           </div>
 
           <div className="space-y-4 text-xs">
@@ -357,14 +370,14 @@ export default function TelegramConfigPage() {
                 1. Telegram Bot Token *
               </label>
               <p className="text-[11px] text-slate-500 mb-1.5">
-                Current stored: <span className="font-mono text-slate-700 dark:text-slate-300">{config?.maskedBotToken}</span>
+                Current stored: <span className="font-mono text-slate-700 dark:text-slate-300">{config?.maskedBotToken || "Not Configured"}</span>
               </p>
               <input
-                type="password"
+                type={showToken ? "text" : "password"}
                 placeholder="Paste token from @BotFather (e.g. 123456789:ABCdefGHIjklMNOpqrs)..."
                 value={botToken}
                 onChange={(e) => setBotToken(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs text-slate-900 dark:text-white"
               />
             </div>
 

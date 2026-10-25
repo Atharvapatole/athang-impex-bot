@@ -18,6 +18,21 @@ export function isMissingColumnError(err: any): boolean {
 }
 
 /**
+ * Checks if an error is PostgreSQL error 42P05 ("prepared statement already exists").
+ * This occurs when connecting to PgBouncer / Supavisor transaction poolers without ?pgbouncer=true.
+ */
+export function isPreparedStatementError(err: any): boolean {
+  if (!err) return false;
+  const msg = (err.message || "").toLowerCase();
+  const code = err.code || "";
+  return (
+    code === "42P05" ||
+    msg.includes("42p05") ||
+    (msg.includes("prepared statement") && msg.includes("already exists"))
+  );
+}
+
+/**
  * Ensures the 5 Business operational columns exist in PostgreSQL.
  * Safe, idempotent, and non-destructive.
  */

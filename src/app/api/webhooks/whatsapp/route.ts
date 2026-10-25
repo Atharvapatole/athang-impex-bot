@@ -13,12 +13,18 @@ export async function GET(req: NextRequest) {
 
   if (mode === "subscribe" && token && challenge) {
     // Check ATHANG IMPEX WhatsApp integration verify token
-    const channel = await prisma.channelIntegration.findFirst({
+    let channel = await prisma.channelIntegration.findFirst({
       where: {
         channelType: "WHATSAPP",
         business: { slug: "athang-impex" },
       },
     });
+
+    if (!channel) {
+      channel = await prisma.channelIntegration.findFirst({
+        where: { channelType: "WHATSAPP" },
+      });
+    }
 
     if (channel && channel.webhookVerifyToken && channel.webhookVerifyToken === token) {
       // Mark channel status as WEBHOOK_VERIFIED
@@ -57,7 +63,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Always find ATHANG IMPEX WhatsApp integration
-    const channel = await prisma.channelIntegration.findFirst({
+    let channel = await prisma.channelIntegration.findFirst({
       where: {
         channelType: "WHATSAPP",
         business: { slug: "athang-impex" },
@@ -65,6 +71,16 @@ export async function POST(req: NextRequest) {
       },
       include: { business: true },
     });
+
+    if (!channel) {
+      channel = await prisma.channelIntegration.findFirst({
+        where: {
+          channelType: "WHATSAPP",
+          isEnabled: true,
+        },
+        include: { business: true },
+      });
+    }
 
     if (!channel) {
       return NextResponse.json({ error: "WhatsApp channel not configured for ATHANG IMPEX" }, { status: 404 });

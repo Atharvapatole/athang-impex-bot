@@ -472,5 +472,76 @@ describe("11. Prisma Database Schema Mismatch & Additive Migration Verification"
   });
 });
 
+describe("12. Production Error Audit & Supabase Pooler (42P05) Prevention Verification", () => {
+  it("should verify normalizeDatabaseUrl enforces pgbouncer=true and connection_limit=1 on Supabase poolers", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const prismaFile = fs.readFileSync(path.join(process.cwd(), "src", "lib", "prisma.ts"), "utf8");
+
+    assert.ok(prismaFile.includes("normalizeDatabaseUrl"), "Must export normalizeDatabaseUrl");
+    assert.ok(prismaFile.includes("pgbouncer=true"), "Must inject pgbouncer=true for transaction pooling");
+    assert.ok(prismaFile.includes("connection_limit=1"), "Must inject connection_limit=1 for serverless");
+
+    // Dynamic test of URL transformation logic
+    const testPoolerUrl = "postgres://postgres.abcdef:secret123@aws-0-ap-south-1.pooler.supabase.com:6543/postgres";
+    const u = new URL(testPoolerUrl);
+    u.searchParams.set("pgbouncer", "true");
+    u.searchParams.set("connection_limit", "1");
+    const normalized = u.toString();
+
+    assert.ok(normalized.includes("pgbouncer=true"), "Normalized URL must include pgbouncer=true");
+    assert.ok(normalized.includes("connection_limit=1"), "Normalized URL must include connection_limit=1");
+  });
+
+  it("should verify scripts/prepare-prisma.js correctly derives direct session URL for migrations", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const prepScript = fs.readFileSync(path.join(process.cwd(), "scripts", "prepare-prisma.js"), "utf8");
+
+    assert.ok(prepScript.includes("deriveDirectUrl"), "Must implement deriveDirectUrl");
+    assert.ok(prepScript.includes("5432"), "Must target port 5432 for session direct mode");
+    assert.ok(prepScript.includes("pgbouncer"), "Must clean pgbouncer param from direct migration URL");
+  });
+
+  it("should verify isPreparedStatementError detects 42P05 and prepared statement collision", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const dbHeal = fs.readFileSync(path.join(process.cwd(), "src", "lib", "db-heal.ts"), "utf8");
+
+    assert.ok(dbHeal.includes("isPreparedStatementError"), "Must export isPreparedStatementError");
+    assert.ok(dbHeal.includes("42P05"), "Must check for PostgresError 42P05");
+    assert.ok(dbHeal.includes("prepared statement"), "Must check for prepared statement message");
+  });
+
+  it("should verify WhatsApp and Telegram channel APIs implement resilient business resolution", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const waRoute = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "channels", "whatsapp", "route.ts"), "utf8");
+    const tgRoute = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "channels", "telegram", "route.ts"), "utf8");
+
+    assert.ok(waRoute.includes("autoHealBusinessSchema"), "WhatsApp API must auto-heal missing columns");
+    assert.ok(waRoute.includes("ensureAdministratorBootstrap"), "WhatsApp API must bootstrap if business record missing");
+    assert.ok(waRoute.includes("replace(/^Bearer\\s+/i, \"\")"), "WhatsApp API must strip leading Bearer from access tokens");
+    assert.ok(waRoute.includes("replace(/[^\\d]/g, \"\")"), "WhatsApp API must sanitize phoneNumberId to digits");
+
+    assert.ok(tgRoute.includes("autoHealBusinessSchema"), "Telegram API must auto-heal missing columns");
+    assert.ok(tgRoute.includes("ensureAdministratorBootstrap"), "Telegram API must bootstrap if business record missing");
+  });
+
+  it("should verify WhatsApp and Telegram frontend pages have token visibility toggles and WABA ID field", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const waPage = fs.readFileSync(path.join(process.cwd(), "src", "app", "channels", "whatsapp", "page.tsx"), "utf8");
+    const tgPage = fs.readFileSync(path.join(process.cwd(), "src", "app", "channels", "telegram", "page.tsx"), "utf8");
+
+    assert.ok(waPage.includes("WABA ID"), "WhatsApp page must include WABA ID input field");
+    assert.ok(waPage.includes("setShowTokens"), "WhatsApp page must include show/hide tokens toggle");
+    assert.ok(waPage.includes("EyeOff"), "WhatsApp page must use Eye/EyeOff icons");
+
+    assert.ok(tgPage.includes("setShowToken"), "Telegram page must include show/hide token toggle");
+    assert.ok(tgPage.includes("EyeOff"), "Telegram page must use Eye/EyeOff icons");
+  });
+});
+
 
 

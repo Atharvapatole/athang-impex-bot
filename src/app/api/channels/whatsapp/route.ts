@@ -4,15 +4,40 @@ import { requireAuth } from "@/lib/auth";
 import { decryptCredential, encryptCredential, maskSecret } from "@/lib/crypto";
 import { WhatsAppClient } from "@/lib/channels/whatsapp";
 import { getWhatsAppWebhookUrl } from "@/lib/urls";
+import { isMissingColumnError, autoHealBusinessSchema } from "@/lib/db-heal";
+import { ensureAdministratorBootstrap } from "@/lib/bootstrap";
 
-// Helper to get or create ATHANG IMPEX WhatsApp integration
+// Helper to get or create ATHANG IMPEX WhatsApp integration with schema resilience
 async function getAthangWhatsAppChannel() {
-  const business = await prisma.business.findUnique({
-    where: { slug: "athang-impex" },
-  });
+  let business: any = null;
+  try {
+    business = await prisma.business.findUnique({
+      where: { slug: "athang-impex" },
+    });
+  } catch (err: any) {
+    if (isMissingColumnError(err)) {
+      await autoHealBusinessSchema();
+      business = await prisma.business.findUnique({
+        where: { slug: "athang-impex" },
+      });
+    } else {
+      throw err;
+    }
+  }
 
   if (!business) {
-    throw new Error("ATHANG IMPEX business profile not found");
+    business = await prisma.business.findFirst();
+  }
+
+  if (!business) {
+    await ensureAdministratorBootstrap();
+    business = (await prisma.business.findFirst({
+      where: { slug: "athang-impex" },
+    })) || (await prisma.business.findFirst());
+  }
+
+  if (!business) {
+    throw new Error("ATHANG IMPEX business profile not found in database");
   }
 
   let channel = await prisma.channelIntegration.findFirst({
@@ -114,64 +139,74 @@ export async function POST(req: NextRequest) {
     if (body.action === "test") {
       // Decrypt credentials
       let creds: any = {};
-      try {
-        creds = JSON.parse(decryptCredential(channel.credentialsEncrypted));
-      } catch {}
+      if (channel.credentialsEncrypted) {
+        try {
+          creds = JSON.parse(decryptCredential(channel.credentialsEncrypted));
+        } catch {}
+      }
 
-      const accessToken = body.accessToken && !body.accessToken.includes("••••")
-        ? body.accessToken.trim()
-        : creds.accessToken;
+      const rawToken =
+        body.accessToken && !body.accessToken.includes("••••")
+          ? body.accessToken.trim()
+          : creds.accessToken;
+      const accessToken = (rawToken || "").replace(/^Bearer\s+/i, "");
 
-      const phoneNumberId = body.phoneNumberId ? body.phoneNumberId.trim() : channel.phoneNumberId;
+      const rawPhoneId = body.phoneNumberId ? body.phoneNumberId.trim() : channel.phoneNumberId;
+      const phoneNumberId = (rawPhoneId || "").replace(/[^\d]/g, "");
 
       if (!phoneNumberId) {
-        return NextResponse.json({
-          success: false,
-          error: "Phone Number ID is required to test Meta Cloud API connection",
-        }, { status: 400 });
+        return NextResponse.json(
+          {
+            success: false,
+            error: "A numeric Phone Number ID is required to test Meta Cloud API connection",
+          },
+          { status: 400 }
+        );
       }
 
       if (!accessToken || accessToken.includes("placeholder")) {
-        return NextResponse.json({
-          success: false,
-          error: "Valid Meta Access Token is required to test connection",
-        }, { status: 400 });
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Valid Meta Access Token is required to test connection",
+          },
+          { status: 400 }
+        );
       }
 
       const wa = new WhatsAppClient(phoneNumberId, accessToken);
       const testResult = await wa.testConnection();
 
-      if (testResult.success) {
+      // Safely record test result in database
+      try {
         await prisma.channelIntegration.update({
           where: { id: channel.id },
           data: {
             phoneNumberId,
-            status: "CONNECTED",
+            status: testResult.success ? "CONNECTED" : "CONNECTION_FAILED",
             lastTestedAt: new Date(),
-            lastError: null,
+            lastError: testResult.success ? null : testResult.error,
           },
         });
+      } catch (dbErr: any) {
+        console.warn("[WhatsApp Test DB Update]", dbErr?.message || dbErr);
+      }
 
+      if (testResult.success) {
         return NextResponse.json({
           success: true,
           status: "CONNECTED",
           data: testResult.data,
         });
       } else {
-        await prisma.channelIntegration.update({
-          where: { id: channel.id },
-          data: {
+        return NextResponse.json(
+          {
+            success: false,
             status: "CONNECTION_FAILED",
-            lastTestedAt: new Date(),
-            lastError: testResult.error,
+            error: testResult.error,
           },
-        });
-
-        return NextResponse.json({
-          success: false,
-          status: "CONNECTION_FAILED",
-          error: testResult.error,
-        }, { status: 400 });
+          { status: 400 }
+        );
       }
     }
 
@@ -186,19 +221,36 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
+    const cleanNewToken = accessToken && !accessToken.includes("••••")
+      ? accessToken.trim().replace(/^Bearer\s+/i, "")
+      : existingCreds.accessToken;
+
+    const cleanNewSecret = appSecret && !appSecret.includes("••••")
+      ? appSecret.trim()
+      : existingCreds.appSecret;
+
     const updatedCreds = {
-      accessToken: accessToken && !accessToken.includes("••••") ? accessToken.trim() : existingCreds.accessToken,
-      appSecret: appSecret && !appSecret.includes("••••") ? appSecret.trim() : existingCreds.appSecret,
+      accessToken: cleanNewToken,
+      appSecret: cleanNewSecret,
     };
 
-    const hasCreds = !!(updatedCreds.accessToken && (phoneNumberId || channel.phoneNumberId));
+    const cleanPhoneId = phoneNumberId !== undefined
+      ? phoneNumberId.trim().replace(/[^\d]/g, "")
+      : channel.phoneNumberId;
+
+    const cleanWabaId = wabaId !== undefined ? wabaId.trim() : channel.wabaId;
+    const cleanVerify = webhookVerifyToken !== undefined
+      ? webhookVerifyToken.trim()
+      : (channel.webhookVerifyToken || "athang_whatsapp_verify_token_2026");
+
+    const hasCreds = !!(updatedCreds.accessToken && cleanPhoneId);
 
     await prisma.channelIntegration.update({
       where: { id: channel.id },
       data: {
-        phoneNumberId: phoneNumberId !== undefined ? phoneNumberId.trim() : channel.phoneNumberId,
-        wabaId: wabaId !== undefined ? wabaId.trim() : channel.wabaId,
-        webhookVerifyToken: webhookVerifyToken !== undefined ? webhookVerifyToken.trim() : channel.webhookVerifyToken,
+        phoneNumberId: cleanPhoneId || null,
+        wabaId: cleanWabaId || null,
+        webhookVerifyToken: cleanVerify,
         credentialsEncrypted: encryptCredential(JSON.stringify(updatedCreds)),
         status: hasCreds ? "PENDING_VERIFICATION" : "NOT_CONFIGURED",
         isEnabled: true,

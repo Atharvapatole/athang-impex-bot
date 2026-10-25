@@ -230,14 +230,16 @@ export default function WhatsAppConfigPage() {
 
         {testResult && (
           <div
-            className={`p-4 rounded-xl text-xs space-y-1 ${
+            className={`p-4 rounded-xl text-xs space-y-1.5 ${
               testResult.success
                 ? "bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300"
                 : "bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400"
             }`}
           >
             <div className="flex items-center space-x-2 font-bold text-sm">
-              {testResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+              <span className="inline-flex shrink-0">
+                {testResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+              </span>
               <span>{testResult.success ? "Meta Connection Test Succeeded!" : "Meta Connection Test Failed"}</span>
             </div>
             {testResult.success && testResult.data ? (
@@ -245,7 +247,14 @@ export default function WhatsAppConfigPage() {
                 Verified Business Name: <strong>{testResult.data.verifiedName}</strong> &bull; Phone: <strong>{testResult.data.displayPhoneNumber}</strong> &bull; Quality: <strong>{testResult.data.qualityRating}</strong>
               </p>
             ) : (
-              <p className="text-[11px] font-mono">{testResult.error}</p>
+              <div className="text-[11px] font-mono space-y-1 mt-1">
+                <p>{testResult.error || "Unknown error during Meta API connection test."}</p>
+                {testResult.details && (
+                  <pre className="p-2 bg-rose-100/50 dark:bg-rose-950/70 rounded text-[10px] overflow-x-auto whitespace-pre-wrap">
+                    {typeof testResult.details === "string" ? testResult.details : JSON.stringify(testResult.details, null, 2)}
+                  </pre>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -256,10 +265,20 @@ export default function WhatsAppConfigPage() {
             <h2 className="text-sm font-bold text-slate-900 dark:text-white">
               Meta WhatsApp Cloud API Credentials
             </h2>
-            <span className="text-[11px] text-slate-400 flex items-center space-x-1">
-              <Lock size={12} className="text-emerald-500" />
-              <span>Encrypted with AES-256-GCM</span>
-            </span>
+            <div className="flex items-center space-x-4">
+              <button
+                type="button"
+                onClick={() => setShowTokens(!showTokens)}
+                className="text-[11px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center space-x-1 transition-colors"
+              >
+                {showTokens ? <EyeOff size={13} /> : <Eye size={13} />}
+                <span>{showTokens ? "Hide Secrets" : "Show Secrets"}</span>
+              </button>
+              <span className="text-[11px] text-slate-400 flex items-center space-x-1">
+                <Lock size={12} className="text-emerald-500" />
+                <span>Encrypted with AES-256-GCM</span>
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
@@ -277,14 +296,33 @@ export default function WhatsAppConfigPage() {
                 placeholder="e.g. 109876543210987"
                 value={phoneNumberId}
                 onChange={(e) => setPhoneNumberId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs text-slate-900 dark:text-white"
               />
             </div>
 
-            {/* Field 2: Verify Token */}
+            {/* Field 2: WhatsApp Business Account ID */}
             <div>
               <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
-                2. Verify Token *
+                2. WhatsApp Business Account ID (WABA ID)
+              </label>
+              <p className="text-[11px] text-slate-500 mb-1.5">
+                From Meta Business Manager / WhatsApp Account Settings.
+              </p>
+              <input
+                type="text"
+                placeholder="e.g. 987654321012345"
+                value={wabaId}
+                onChange={(e) => setWabaId(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            {/* Field 3: Verify Token */}
+            <div>
+              <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
+                3. Verify Token *
               </label>
               <p className="text-[11px] text-slate-500 mb-1.5">
                 The verification string you configure in Meta Webhook handshake.
@@ -295,26 +333,7 @@ export default function WhatsAppConfigPage() {
                 placeholder="athang_whatsapp_verify_token_2026"
                 value={webhookVerifyToken}
                 onChange={(e) => setWebhookVerifyToken(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            {/* Field 3: Access Token */}
-            <div>
-              <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
-                3. Access Token (Permanent System User Token) *
-              </label>
-              <p className="text-[11px] text-slate-500 mb-1.5">
-                Current stored: <span className="font-mono text-slate-700 dark:text-slate-300">{config?.maskedAccessToken}</span>
-              </p>
-              <input
-                type="password"
-                placeholder="Paste new Meta access token to update..."
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs text-slate-900 dark:text-white"
               />
             </div>
 
@@ -324,23 +343,42 @@ export default function WhatsAppConfigPage() {
                 4. App Secret (for HMAC-SHA256 signature verification)
               </label>
               <p className="text-[11px] text-slate-500 mb-1.5">
-                Current stored: <span className="font-mono text-slate-700 dark:text-slate-300">{config?.maskedAppSecret}</span>
+                Current stored: <span className="font-mono text-slate-700 dark:text-slate-300">{config?.maskedAppSecret || "None"}</span>
               </p>
               <input
-                type="password"
+                type={showTokens ? "text" : "password"}
                 placeholder="Paste Meta App Secret to update..."
                 value={appSecret}
                 onChange={(e) => setAppSecret(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs"
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs text-slate-900 dark:text-white"
               />
             </div>
           </div>
 
-          {/* Field 5: Webhook URL */}
+          <div className="grid grid-cols-1 gap-4 text-xs">
+            {/* Field 5: Access Token */}
+            <div>
+              <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1">
+                5. Access Token (Permanent System User Token) *
+              </label>
+              <p className="text-[11px] text-slate-500 mb-1.5">
+                Current stored: <span className="font-mono text-slate-700 dark:text-slate-300">{config?.maskedAccessToken || "None"}</span>
+              </p>
+              <input
+                type={showTokens ? "text" : "password"}
+                placeholder="Paste new Meta access token to update..."
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          {/* Field 6: Webhook URL */}
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800/80 text-xs space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-800 dark:text-slate-200">
-                5. Webhook Callback URL
+                6. Webhook Callback URL
               </span>
               <button
                 type="button"

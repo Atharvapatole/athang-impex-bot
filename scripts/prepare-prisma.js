@@ -18,10 +18,51 @@ const isPostgres =
 
 const targetProvider = isPostgres ? "postgresql" : "sqlite";
 
-// In PostgreSQL / Supabase mode, ensure DIRECT_URL is present in process.env
-// so Prisma CLI commands (generate, migrate) do not fail if only DATABASE_URL is initially supplied
-if (isPostgres && !process.env.DIRECT_URL && dbUrl) {
-  process.env.DIRECT_URL = dbUrl;
+function normalizePostgresUrl(rawUrl) {
+  if (!rawUrl) return rawUrl;
+  try {
+    const parsed = new URL(rawUrl);
+    const isPooler = parsed.port === "6543" || parsed.hostname.includes("pooler.");
+    if (isPooler && !parsed.searchParams.has("pgbouncer")) {
+      parsed.searchParams.set("pgbouncer", "true");
+    }
+    return parsed.toString();
+  } catch {
+    if (rawUrl.includes(":6543") && !rawUrl.includes("pgbouncer=true")) {
+      return rawUrl + (rawUrl.includes("?") ? "&" : "?") + "pgbouncer=true";
+    }
+    return rawUrl;
+  }
+}
+
+function deriveDirectUrl(databaseUrl) {
+  if (!databaseUrl) return databaseUrl;
+  try {
+    const parsed = new URL(databaseUrl);
+    if (parsed.port === "6543") {
+      parsed.port = "5432";
+    }
+    parsed.searchParams.delete("pgbouncer");
+    return parsed.toString();
+  } catch {
+    return databaseUrl.replace(":6543", ":5432").replace("pgbouncer=true", "").replace("&&", "&").replace("?&", "?");
+  }
+}
+
+// In PostgreSQL / Supabase mode:
+// 1. Ensure DATABASE_URL has ?pgbouncer=true if using transaction pooler (port 6543)
+if (isPostgres && dbUrl) {
+  const normalized = normalizePostgresUrl(dbUrl);
+  if (normalized !== dbUrl) {
+    process.env.DATABASE_URL = normalized;
+    console.log("[Prisma Prepare] Appended 'pgbouncer=true' to transaction pooler DATABASE_URL to prevent 42P05 prepared-statement collisions");
+  }
+
+  // 2. Ensure DIRECT_URL points to session mode (port 5432) for migrations if not explicitly set
+  if (!process.env.DIRECT_URL) {
+    process.env.DIRECT_URL = deriveDirectUrl(dbUrl);
+    console.log("[Prisma Prepare] Configured DIRECT_URL on session port 5432 for migration commands");
+  }
 }
 
 let expectedDatasource;
