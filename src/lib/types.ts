@@ -9,7 +9,7 @@ export interface SessionUser {
 
 export type ChannelType = "WHATSAPP" | "TELEGRAM";
 
-export type AIProvider = "GROQ" | "MISTRAL" | "GEMINI";
+export type AIProvider = "GROQ" | "MISTRAL" | "GEMINI" | "OPENROUTER";
 
 export interface AIProviderConfigData {
   provider: AIProvider;

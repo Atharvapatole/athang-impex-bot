@@ -20,9 +20,19 @@ export async function GET(req: NextRequest) {
   try {
     const businessId = req.nextUrl.searchParams.get("businessId");
 
-    const whereClause: any = {};
+    let targetBiz = null;
     if (businessId) {
-      whereClause.businessId = businessId;
+      targetBiz = await prisma.business.findUnique({ where: { id: businessId } });
+    }
+    if (!targetBiz) {
+      targetBiz =
+        (await prisma.business.findFirst({ where: { slug: "athang-impex" } })) ||
+        (await prisma.business.findFirst());
+    }
+
+    const whereClause: any = {};
+    if (targetBiz) {
+      whereClause.businessId = targetBiz.id;
     }
 
     let configs = await prisma.aIProviderConfig.findMany({
@@ -31,23 +41,19 @@ export async function GET(req: NextRequest) {
       include: { business: { select: { name: true, slug: true } } },
     });
 
-    // Auto-seed canonical AI fallback tiers if empty
-    if (configs.length === 0) {
-      let targetBiz = await prisma.business.findFirst({
-        where: { slug: "athang-impex" },
-      });
-      if (!targetBiz) {
-        targetBiz = await prisma.business.findFirst();
-      }
+    // Auto-seed or backfill canonical 4-tier AI fallback chain if any are missing
+    if (targetBiz) {
+      const canonicalTiers = [
+        { provider: "GROQ", modelId: "llama-3.3-70b-versatile", priority: 1 },
+        { provider: "MISTRAL", modelId: "mistral-large-latest", priority: 2 },
+        { provider: "GEMINI", modelId: "gemini-1.5-flash", priority: 3 },
+        { provider: "OPENROUTER", modelId: "openrouter/free", priority: 4 },
+      ];
 
-      if (targetBiz) {
-        const defaultTiers = [
-          { provider: "GROQ", modelId: "llama-3.3-70b-versatile", priority: 1 },
-          { provider: "MISTRAL", modelId: "mistral-large-latest", priority: 2 },
-          { provider: "GEMINI", modelId: "gemini-1.5-flash", priority: 3 },
-        ];
-
-        for (const tier of defaultTiers) {
+      let changed = false;
+      for (const tier of canonicalTiers) {
+        const existing = configs.find((c) => c.provider === tier.provider);
+        if (!existing) {
           await prisma.aIProviderConfig.create({
             data: {
               businessId: targetBiz.id,
@@ -62,8 +68,11 @@ export async function GET(req: NextRequest) {
               status: "NOT_CONFIGURED",
             },
           });
+          changed = true;
         }
+      }
 
+      if (changed) {
         configs = await prisma.aIProviderConfig.findMany({
           where: whereClause,
           orderBy: { priority: "asc" },
@@ -75,15 +84,23 @@ export async function GET(req: NextRequest) {
     // Mask API keys for safe transmission to frontend
     const sanitized = configs.map((c) => {
       let maskedKey = "••••••••";
+      let hasValidKey = false;
       try {
         const plain = decryptCredential(c.apiKeyEncrypted);
-        maskedKey = maskSecret(plain);
-      } catch {}
+        if (plain && !plain.includes("placeholder")) {
+          hasValidKey = true;
+          maskedKey = maskSecret(plain);
+        } else {
+          maskedKey = "Not configured";
+        }
+      } catch {
+        maskedKey = "Not configured";
+      }
 
       return {
         id: c.id,
         businessId: c.businessId,
-        businessName: c.business?.name || "Global Default",
+        businessName: c.business?.name || "ATHANG IMPEX",
         provider: c.provider,
         modelId: c.modelId,
         priority: c.priority,
@@ -95,11 +112,12 @@ export async function GET(req: NextRequest) {
         lastTestedAt: c.lastTestedAt,
         lastSuccessAt: c.lastSuccessAt,
         lastError: c.lastError,
+        hasValidKey,
         maskedKey,
       };
     });
 
-    return NextResponse.json({ configs: sanitized });
+    return NextResponse.json({ configs: sanitized, businessId: targetBiz?.id });
   } catch (err: any) {
     if (isDynamicServerError(err)) {
       throw err;
@@ -154,22 +172,43 @@ export async function POST(req: NextRequest) {
     if (temperature !== undefined) updateData.temperature = temperature;
 
     if (apiKey && apiKey.trim().length > 0 && !apiKey.includes("••••")) {
-      updateData.apiKeyEncrypted = encryptCredential(apiKey.trim());
+      const cleanKey = apiKey.trim().replace(/^Bearer\s+/i, "");
+      updateData.apiKeyEncrypted = encryptCredential(cleanKey);
       updateData.status = "CONFIGURED";
+      updateData.lastError = null;
     }
 
     let config;
+    let resolvedBizId = businessId;
+    if (!resolvedBizId) {
+      const targetBiz =
+        (await prisma.business.findFirst({ where: { slug: "athang-impex" } })) ||
+        (await prisma.business.findFirst());
+      resolvedBizId = targetBiz?.id || null;
+    }
+
     if (id) {
       config = await prisma.aIProviderConfig.update({
         where: { id },
         data: updateData,
       });
-    } else {
-      let resolvedBizId = businessId;
-      if (!resolvedBizId) {
-        const targetBiz = (await prisma.business.findFirst({ where: { slug: "athang-impex" } })) || (await prisma.business.findFirst());
-        resolvedBizId = targetBiz?.id || null;
+    } else if (resolvedBizId && provider) {
+      const existing = await prisma.aIProviderConfig.findFirst({
+        where: { businessId: resolvedBizId, provider },
+      });
+      if (existing) {
+        config = await prisma.aIProviderConfig.update({
+          where: { id: existing.id },
+          data: updateData,
+        });
       }
+    }
+
+    if (!config) {
+      const initialKey =
+        apiKey && !apiKey.includes("••••")
+          ? apiKey.trim().replace(/^Bearer\s+/i, "")
+          : "placeholder";
 
       config = await prisma.aIProviderConfig.create({
         data: {
@@ -181,13 +220,13 @@ export async function POST(req: NextRequest) {
           timeoutMs: timeoutMs ?? 15000,
           maxTokens: maxTokens ?? 1024,
           temperature: temperature ?? 0.3,
-          apiKeyEncrypted: apiKey ? encryptCredential(apiKey.trim()) : encryptCredential("placeholder"),
-          status: apiKey ? "CONFIGURED" : "NOT_CONFIGURED",
+          apiKeyEncrypted: encryptCredential(initialKey),
+          status: initialKey !== "placeholder" ? "CONFIGURED" : "NOT_CONFIGURED",
         },
       });
     }
 
-    return NextResponse.json({ success: true, configId: config.id });
+    return NextResponse.json({ success: true, configId: config.id, provider: config.provider });
   } catch (err: any) {
     if (isDynamicServerError(err)) {
       throw err;

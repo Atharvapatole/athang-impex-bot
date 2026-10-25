@@ -10,8 +10,8 @@ export class GeminiAdapter implements AIProviderAdapter {
   private temperature: number;
 
   constructor(options: AIAdapterOptions) {
-    this.apiKey = options.apiKey;
-    this.modelId = options.modelId || "gemini-1.5-flash";
+    this.apiKey = (options.apiKey || "").trim().replace(/^Bearer\s+/i, "");
+    this.modelId = (options.modelId || "").trim() || "gemini-1.5-flash";
     this.timeoutMs = options.timeoutMs || 15000;
     this.maxTokens = options.maxTokens || 1024;
     this.temperature = options.temperature ?? 0.3;
@@ -23,7 +23,7 @@ export class GeminiAdapter implements AIProviderAdapter {
   ): Promise<AIResponseResult> {
     const startTime = Date.now();
     const timeout = overrideOptions?.timeoutMs || this.timeoutMs;
-    const model = overrideOptions?.modelId || this.modelId;
+    const model = (overrideOptions?.modelId || this.modelId).trim();
     const maxTokens = overrideOptions?.maxTokens || this.maxTokens;
     const temperature = overrideOptions?.temperature ?? this.temperature;
 
@@ -72,6 +72,7 @@ export class GeminiAdapter implements AIProviderAdapter {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-goog-api-key": this.apiKey,
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
@@ -80,7 +81,7 @@ export class GeminiAdapter implements AIProviderAdapter {
       const latencyMs = Date.now() - startTime;
       if (!res.ok) {
         const errorText = await res.text();
-        throw this.normalizeError(res.status, errorText);
+        throw this.normalizeError(res.status, errorText, model);
       }
 
       const data = await res.json();
@@ -102,25 +103,33 @@ export class GeminiAdapter implements AIProviderAdapter {
         throw {
           category: "TIMEOUT",
           isRetryable: true,
-          message: `Gemini request timed out after ${timeout}ms`,
+          message: `Gemini request timed out after ${timeout}ms for model '${model}'`,
           provider: "GEMINI",
         } as NormalizedAIError;
       }
       if (err.category) throw err;
-      throw this.normalizeError(500, err.message || "Unknown Gemini error");
+      throw this.normalizeError(500, err.message || "Unknown Gemini error", model);
     } finally {
       clearTimeout(timeoutId);
     }
   }
 
-  async testConnection(): Promise<{ success: boolean; latencyMs: number; error?: string }> {
+  async testConnection(): Promise<{ success: boolean; latencyMs: number; error?: string; model?: string }> {
     const start = Date.now();
     try {
+      if (!this.apiKey || this.apiKey.includes("placeholder")) {
+        return {
+          success: false,
+          latencyMs: 0,
+          error: "Valid Google Gemini API key is required. Get one at https://aistudio.google.com/app/apikey",
+        };
+      }
+
       await this.generateResponse(
         [{ role: "user", content: "ping" }],
-        { maxTokens: 5, timeoutMs: 8000 }
+        { maxTokens: 5, timeoutMs: 10000 }
       );
-      return { success: true, latencyMs: Date.now() - start };
+      return { success: true, latencyMs: Date.now() - start, model: this.modelId };
     } catch (err: any) {
       return {
         success: false,
@@ -130,32 +139,43 @@ export class GeminiAdapter implements AIProviderAdapter {
     }
   }
 
-  private normalizeError(status: number, responseBody: string): NormalizedAIError {
+  private normalizeError(status: number, responseBody: string, model: string): NormalizedAIError {
     let category: NormalizedAIError["category"] = "UNKNOWN";
     let isRetryable = false;
+    let detailMsg = responseBody;
 
-    if (status === 400 && responseBody.includes("API_KEY_INVALID")) {
+    try {
+      const parsed = JSON.parse(responseBody);
+      detailMsg = parsed.error?.message || parsed.message || responseBody;
+    } catch {}
+
+    if (status === 400 && detailMsg.includes("API_KEY_INVALID")) {
       category = "AUTH_ERROR";
       isRetryable = false;
+      detailMsg = `Invalid Google Gemini API Key. Verify your key at https://aistudio.google.com/app/apikey`;
     } else if (status === 401 || status === 403) {
       category = "AUTH_ERROR";
       isRetryable = false;
-    } else if (status === 404 || responseBody.includes("models/")) {
+      detailMsg = `Authentication failed (${detailMsg}). Verify your API key at https://aistudio.google.com/app/apikey`;
+    } else if (status === 404 || detailMsg.includes("models/") || detailMsg.toLowerCase().includes("not found")) {
       category = "INVALID_MODEL";
       isRetryable = false;
-    } else if (status === 429 || responseBody.includes("RESOURCE_EXHAUSTED")) {
+      detailMsg = `Model '${model}' not found in Gemini API (${detailMsg}). Supported models include 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'.`;
+    } else if (status === 429 || detailMsg.includes("RESOURCE_EXHAUSTED")) {
       category = "RATE_LIMIT";
       isRetryable = true;
+      detailMsg = `Google Gemini rate/quota limit reached (${detailMsg}). Failing over to OpenRouter.`;
     } else if (status >= 500) {
       category = "SERVER_ERROR";
       isRetryable = true;
+      detailMsg = `Google Gemini server error [${status}]: ${detailMsg}`;
     }
 
     return {
       category,
       isRetryable,
       statusCode: status,
-      message: `Gemini [${status}]: ${responseBody.slice(0, 300)}`,
+      message: `Gemini [${status}]: ${detailMsg}`,
       provider: "GEMINI",
     };
   }

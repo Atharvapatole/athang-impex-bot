@@ -3,6 +3,7 @@ import { decryptCredential } from "../crypto";
 import { GroqAdapter } from "./groq";
 import { MistralAdapter } from "./mistral";
 import { GeminiAdapter } from "./gemini";
+import { OpenRouterAdapter } from "./openrouter";
 import { AIProviderAdapter, NormalizedAIError, PromptMessage } from "./types";
 import { AIProvider, AIResponseResult } from "../types";
 
@@ -21,7 +22,7 @@ export interface FallbackExecutionResult {
 export class FallbackEngine {
   /**
    * Executes AI generation across the configured fallback chain for a business.
-   * Priority: Groq (1) -> Mistral (2) -> Gemini (3).
+   * Priority: Groq (1) -> Mistral (2) -> Gemini (3) -> OpenRouter (4).
    */
   static async generateWithFallback(
     businessId: string,
@@ -168,7 +169,7 @@ export class FallbackEngine {
   private static createAdapter(config: any): AIProviderAdapter | null {
     try {
       const apiKey = decryptCredential(config.apiKeyEncrypted);
-      if (!apiKey) return null;
+      if (!apiKey || apiKey === "placeholder" || apiKey.trim().length === 0) return null;
 
       const options = {
         apiKey,
@@ -185,6 +186,8 @@ export class FallbackEngine {
           return new MistralAdapter(options);
         case "GEMINI":
           return new GeminiAdapter(options);
+        case "OPENROUTER":
+          return new OpenRouterAdapter(options);
         default:
           return null;
       }

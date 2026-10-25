@@ -5,6 +5,7 @@ import { decryptCredential } from "@/lib/crypto";
 import { GroqAdapter } from "@/lib/ai/groq";
 import { MistralAdapter } from "@/lib/ai/mistral";
 import { GeminiAdapter } from "@/lib/ai/gemini";
+import { OpenRouterAdapter } from "@/lib/ai/openrouter";
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,15 +42,41 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (!resolvedKey || resolvedKey.includes("placeholder")) {
+    // Fallback: look up by provider and target business
+    if (!configRecord && resolvedProvider) {
+      const targetBiz =
+        (await prisma.business.findFirst({ where: { slug: "athang-impex" } })) ||
+        (await prisma.business.findFirst());
+      if (targetBiz) {
+        configRecord = await prisma.aIProviderConfig.findFirst({
+          where: { businessId: targetBiz.id, provider: resolvedProvider },
+        });
+        if (configRecord) {
+          resolvedModel = resolvedModel || configRecord.modelId;
+          if (!resolvedKey || resolvedKey.includes("••••")) {
+            resolvedKey = decryptCredential(configRecord.apiKeyEncrypted);
+          }
+        }
+      }
+    }
+
+    const cleanKey = (resolvedKey || "").trim().replace(/^Bearer\s+/i, "");
+
+    if (!cleanKey || cleanKey.includes("placeholder")) {
+      const guidance: Record<string, string> = {
+        MISTRAL: "Enter your Mistral API key from https://admin.mistral.ai/organization/api-keys to test.",
+        GROQ: "Enter your Groq API key from https://console.groq.com/keys to test.",
+        GEMINI: "Enter your Google Gemini API key from https://aistudio.google.com/app/apikey to test.",
+        OPENROUTER: "Enter your OpenRouter API key from https://openrouter.ai/keys to test.",
+      };
       return NextResponse.json({
         success: false,
-        error: "Cannot test connection with placeholder key. Please enter a valid API key.",
+        error: `Cannot test connection with placeholder key. ${guidance[resolvedProvider] || "Please enter a valid API key."}`,
       });
     }
 
     let adapter: any;
-    const opts = { apiKey: resolvedKey, modelId: resolvedModel };
+    const opts = { apiKey: cleanKey, modelId: resolvedModel };
 
     if (resolvedProvider === "GROQ") {
       adapter = new GroqAdapter(opts);
@@ -57,21 +84,27 @@ export async function POST(req: NextRequest) {
       adapter = new MistralAdapter(opts);
     } else if (resolvedProvider === "GEMINI") {
       adapter = new GeminiAdapter(opts);
+    } else if (resolvedProvider === "OPENROUTER") {
+      adapter = new OpenRouterAdapter(opts);
     } else {
-      return NextResponse.json({ error: "Unsupported provider" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Unsupported provider" }, { status: 400 });
     }
 
     const testResult = await adapter.testConnection();
 
     if (configRecord) {
-      await prisma.aIProviderConfig.update({
-        where: { id: configRecord.id },
-        data: {
-          lastTestedAt: new Date(),
-          status: testResult.success ? "CONNECTION_TESTED" : "ERROR",
-          lastError: testResult.success ? null : testResult.error,
-        },
-      });
+      try {
+        await prisma.aIProviderConfig.update({
+          where: { id: configRecord.id },
+          data: {
+            lastTestedAt: new Date(),
+            status: testResult.success ? "CONNECTION_TESTED" : "ERROR",
+            lastError: testResult.success ? null : (testResult.error || "Connection failed").slice(0, 500),
+          },
+        });
+      } catch (dbErr: any) {
+        console.warn("[AI Provider Test DB Update]", dbErr?.message || dbErr);
+      }
     }
 
     return NextResponse.json(testResult);
@@ -79,6 +112,6 @@ export async function POST(req: NextRequest) {
     if (isDynamicServerError(err)) {
       throw err;
     }
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message || "Internal server error" }, { status: 500 });
   }
 }

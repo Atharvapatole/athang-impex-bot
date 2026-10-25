@@ -543,5 +543,91 @@ describe("12. Production Error Audit & Supabase Pooler (42P05) Prevention Verifi
   });
 });
 
+describe("13. Multi-Provider AI Fallback Engine, Mistral Admin Keys, & OpenRouter Gateway Verification", () => {
+  it("should verify OpenRouter adapter properly initializes, normalizes errors, and tests connection", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const openrouterFile = fs.readFileSync(path.join(process.cwd(), "src", "lib", "ai", "openrouter.ts"), "utf8");
+
+    assert.ok(openrouterFile.includes('provider: "OPENROUTER"'), "Must define OPENROUTER provider");
+    assert.ok(openrouterFile.includes("openrouter.ai/api/v1/chat/completions"), "Must target official completions endpoint");
+    assert.ok(openrouterFile.includes("openrouter.ai/api/v1/models"), "Must target official models endpoint");
+    assert.ok(openrouterFile.includes("openrouter/free"), "Must default to openrouter/free");
+    assert.ok(openrouterFile.includes("402"), "Must handle 402 insufficient credits error");
+    assert.ok(openrouterFile.includes("openrouter.ai/keys"), "Must reference openrouter.ai/keys in auth errors");
+    assert.ok(openrouterFile.includes("openrouter.ai/credits"), "Must reference openrouter.ai/credits in quota errors");
+    assert.ok(openrouterFile.includes('replace(/^Bearer\\s+/i, "")'), "Must sanitize Bearer token");
+  });
+
+  it("should verify Mistral adapter is configured for organization admin API keys with clear guidance", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const mistralFile = fs.readFileSync(path.join(process.cwd(), "src", "lib", "ai", "mistral.ts"), "utf8");
+
+    assert.ok(mistralFile.includes('provider: "MISTRAL"'), "Must define MISTRAL provider");
+    assert.ok(mistralFile.includes("api.mistral.ai/v1/chat/completions"), "Must target official chat completions endpoint");
+    assert.ok(mistralFile.includes("https://admin.mistral.ai/organization/api-keys"), "Must point to organization admin api-keys");
+    assert.ok(mistralFile.includes("Studio"), "Must check Studio product access");
+    assert.ok(mistralFile.includes("mistral-small-latest"), "Must suggest mistral-small-latest as alternative");
+    assert.ok(mistralFile.includes('replace(/^Bearer\\s+/i, "")'), "Must sanitize Bearer token");
+  });
+
+  it("should verify Groq and Gemini adapters sanitize keys and support official protocols", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const groqFile = fs.readFileSync(path.join(process.cwd(), "src", "lib", "ai", "groq.ts"), "utf8");
+    const geminiFile = fs.readFileSync(path.join(process.cwd(), "src", "lib", "ai", "gemini.ts"), "utf8");
+
+    assert.ok(groqFile.includes('provider: "GROQ"'), "Must define GROQ provider");
+    assert.ok(groqFile.includes("api.groq.com/openai/v1/chat/completions"), "Must target Groq OpenAI-compatible endpoint");
+    assert.ok(groqFile.includes("llama-3.3-70b-versatile"), "Must support llama-3.3-70b-versatile");
+    assert.ok(groqFile.includes('replace(/^Bearer\\s+/i, "")'), "Groq must sanitize Bearer prefix");
+
+    assert.ok(geminiFile.includes('provider: "GEMINI"'), "Must define GEMINI provider");
+    assert.ok(geminiFile.includes("x-goog-api-key"), "Gemini must use x-goog-api-key header");
+    assert.ok(geminiFile.includes("generativelanguage.googleapis.com"), "Must target Google Generative Language endpoint");
+    assert.ok(geminiFile.includes('replace(/^Bearer\\s+/i, "")'), "Gemini must sanitize Bearer prefix");
+  });
+
+  it("should verify FallbackEngine supports all 4 tiers in sequential priority order", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const fallbackFile = fs.readFileSync(path.join(process.cwd(), "src", "lib", "ai", "fallback-engine.ts"), "utf8");
+
+    assert.ok(fallbackFile.includes("Groq (1) -> Mistral (2) -> Gemini (3) -> OpenRouter (4)"), "Must document 4-tier chain");
+    assert.ok(fallbackFile.includes('case "OPENROUTER":'), "Must handle OPENROUTER in createAdapter");
+    assert.ok(fallbackFile.includes("OpenRouterAdapter"), "Must import OpenRouterAdapter");
+  });
+
+  it("should verify AI Providers API auto-provisions canonical 4 tiers and test endpoint supports OpenRouter", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const aiApi = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "ai-providers", "route.ts"), "utf8");
+    const testApi = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "ai-providers", "test", "route.ts"), "utf8");
+    const modelsApi = fs.readFileSync(path.join(process.cwd(), "src", "app", "api", "ai-providers", "models", "route.ts"), "utf8");
+
+    assert.ok(aiApi.includes('"OPENROUTER"'), "AI Provider API must include OPENROUTER");
+    assert.ok(aiApi.includes("priority: 4"), "OPENROUTER must have priority 4");
+    assert.ok(aiApi.includes("openrouter/free"), "OPENROUTER default model must be openrouter/free");
+
+    assert.ok(testApi.includes("OpenRouterAdapter"), "Test API must import OpenRouterAdapter");
+    assert.ok(testApi.includes('resolvedProvider === "OPENROUTER"'), "Test API must handle OPENROUTER");
+
+    assert.ok(modelsApi.includes("OPENROUTER"), "Models API must support OPENROUTER catalog");
+  });
+
+  it("should verify AI Providers frontend links Mistral to admin.mistral.ai and includes OpenRouter settings", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const pageContent = fs.readFileSync(path.join(process.cwd(), "src", "app", "ai-providers", "page.tsx"), "utf8");
+
+    assert.ok(pageContent.includes("https://admin.mistral.ai/organization/api-keys"), "Mistral must link to admin.mistral.ai/organization/api-keys");
+    assert.ok(!pageContent.includes("https://console.mistral.ai/api-keys"), "Must not direct exclusively to console.mistral.ai/api-keys");
+    assert.ok(pageContent.includes("OPENROUTER"), "Must include OPENROUTER in page configs");
+    assert.ok(pageContent.includes("https://openrouter.ai/keys"), "Must link to openrouter.ai/keys");
+    assert.ok(pageContent.includes("openrouter/free"), "Must include openrouter/free model");
+  });
+});
+
 
 

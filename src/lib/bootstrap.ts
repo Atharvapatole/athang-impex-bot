@@ -112,6 +112,7 @@ Key Products:
         { provider: "GROQ", modelId: "llama-3.3-70b-versatile", priority: 1 },
         { provider: "MISTRAL", modelId: "mistral-large-latest", priority: 2 },
         { provider: "GEMINI", modelId: "gemini-1.5-flash", priority: 3 },
+        { provider: "OPENROUTER", modelId: "openrouter/free", priority: 4 },
       ];
 
       for (const tier of defaultTiers) {
